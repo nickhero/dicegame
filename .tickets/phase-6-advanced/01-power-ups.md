@@ -1,6 +1,6 @@
 # Power-ups System
 
-- **Status**: open
+- **Status**: done
 - **Phase**: 6
 - **Depends on**: Phase 1
 - **Files**: `src/game/PowerUps.ts` (new), `src/game/GameRules.ts`, `src/game/Territory.ts`

@@ -1,6 +1,6 @@
 # Map Preview in Setup
 
-- **Status**: open
+- **Status**: done
 - **Phase**: 4
 - **Depends on**: Phase 3 (`02-setup-scene`)
 - **Files**: `src/scenes/SetupScene.ts`, `src/rendering/MapRenderer.ts`

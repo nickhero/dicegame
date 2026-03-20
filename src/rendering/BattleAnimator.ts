@@ -37,6 +37,11 @@ export class BattleAnimator {
       this.dismiss();
     }
 
+    // Instant speed: skip animation entirely
+    if (speed <= 0) {
+      return Promise.resolve();
+    }
+
     return new Promise((resolve) => {
       this.dismissed = false;
       this.activeResolve = resolve;

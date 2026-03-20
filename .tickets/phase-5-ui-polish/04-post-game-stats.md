@@ -1,6 +1,6 @@
 # Post-Game Statistics
 
-- **Status**: open
+- **Status**: done
 - **Phase**: 5
 - **Depends on**: `01-turn-history-log`
 - **Files**: `src/game/GameStats.ts` (new), `src/scenes/GameOverScene.ts`

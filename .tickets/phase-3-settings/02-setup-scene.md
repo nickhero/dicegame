@@ -1,6 +1,6 @@
 # Game Setup Scene
 
-- **Status**: open
+- **Status**: done
 - **Phase**: 3
 - **Depends on**: `01-game-config-model`, Phase 1 (`05-hud-personality-display`)
 - **Files**: `src/scenes/SetupScene.ts` (new), `src/scenes/MenuScene.ts`

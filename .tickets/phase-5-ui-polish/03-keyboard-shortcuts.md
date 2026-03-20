@@ -1,6 +1,6 @@
 # Keyboard Shortcuts
 
-- **Status**: open
+- **Status**: done
 - **Phase**: 5
 - **Depends on**: none
 - **Files**: `src/scenes/GameScene.ts`

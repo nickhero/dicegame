@@ -1,6 +1,6 @@
 # GameConfig Model + localStorage
 
-- **Status**: open
+- **Status**: done
 - **Phase**: 3
 - **Depends on**: none
 - **Files**: `src/game/GameConfig.ts` (new)

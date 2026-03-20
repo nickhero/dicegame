@@ -1,6 +1,6 @@
 # Surrender Mechanic
 
-- **Status**: open
+- **Status**: done
 - **Phase**: 6
 - **Depends on**: Phase 1
 - **Files**: `src/game/GameRules.ts`, `src/game/AIPlayer.ts`, `src/scenes/GameScene.ts`

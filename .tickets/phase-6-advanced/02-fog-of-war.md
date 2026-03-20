@@ -1,6 +1,6 @@
 # Fog of War
 
-- **Status**: open
+- **Status**: done
 - **Phase**: 6
 - **Depends on**: Phase 1
 - **Files**: `src/game/FogOfWar.ts` (new), `src/rendering/MapRenderer.ts`

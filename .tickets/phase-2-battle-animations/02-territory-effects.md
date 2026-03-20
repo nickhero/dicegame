@@ -1,6 +1,6 @@
 # Territory Visual Effects
 
-- **Status**: open
+- **Status**: done
 - **Phase**: 2
 - **Depends on**: `01-battle-popup`
 - **Files**: `src/rendering/MapRenderer.ts`

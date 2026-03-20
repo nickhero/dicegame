@@ -1,6 +1,6 @@
 # Map Shape Variants
 
-- **Status**: open
+- **Status**: done
 - **Phase**: 4
 - **Depends on**: `01-hex-grid`
 - **Files**: `src/game/MapShapes.ts` (new), `src/game/MapGenerator.ts`

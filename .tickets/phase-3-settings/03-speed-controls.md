@@ -1,6 +1,6 @@
 # Animation Speed Controls
 
-- **Status**: open
+- **Status**: done
 - **Phase**: 3
 - **Depends on**: `02-setup-scene`
 - **Files**: `src/scenes/GameScene.ts`, `src/rendering/BattleAnimator.ts`

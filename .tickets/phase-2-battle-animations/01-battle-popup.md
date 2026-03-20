@@ -1,6 +1,6 @@
 # Battle Popup with Dice Animation
 
-- **Status**: open
+- **Status**: done
 - **Phase**: 2
 - **Depends on**: none
 - **Files**: `src/rendering/BattleAnimator.ts` (new), `src/scenes/GameScene.ts`

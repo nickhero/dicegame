@@ -1,6 +1,6 @@
 # Visualize AI Turns
 
-- **Status**: open
+- **Status**: done
 - **Phase**: 2
 - **Depends on**: `01-battle-popup`
 - **Files**: `src/scenes/GameScene.ts`

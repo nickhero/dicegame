@@ -1,6 +1,6 @@
 # Hex Grid Map Generation
 
-- **Status**: open
+- **Status**: done
 - **Phase**: 4
 - **Depends on**: none
 - **Files**: `src/game/MapGenerator.ts`

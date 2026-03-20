@@ -1,6 +1,6 @@
 # Sound Effects
 
-- **Status**: open
+- **Status**: done
 - **Phase**: 5
 - **Depends on**: none
 - **Files**: `src/rendering/SoundManager.ts` (new), `src/scenes/GameScene.ts`

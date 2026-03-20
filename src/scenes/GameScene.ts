@@ -14,8 +14,7 @@ import {
 } from '../game/GameRules';
 import { selectBestMove } from '../game/AIPlayer';
 import { PersonalityType, getRandomPersonality, PERSONALITIES } from '../game/AIPersonality';
-import { loadPreferences } from '../game/GameConfig';
-import { GameSetupConfig, DEFAULT_SETUP } from '../game/GameConfig';
+import { SPEED_CONFIGS, GameSetupConfig, DEFAULT_SETUP } from '../game/GameConfig';
 import { getVisibleTerritories } from '../game/FogOfWar';
 import { SeededRandom } from '../utils/random';
 import { MapRenderer } from '../rendering/MapRenderer';
@@ -45,7 +44,7 @@ export class GameScene extends Phaser.Scene {
   private confirmDialog: Phaser.GameObjects.Container | null = null;
   private surrenderDialog: Phaser.GameObjects.Container | null = null;
   private isDialogOpen = false;
-  private isInstantSpeed = false;
+  private speed: GameSetupConfig['speed'] = 'normal';
   private fogOfWarEnabled = false;
   private setupConfig!: GameSetupConfig;
 
@@ -65,6 +64,7 @@ export class GameScene extends Phaser.Scene {
     } else {
       this.setupConfig = { ...DEFAULT_SETUP, aiPersonalities: [...DEFAULT_SETUP.aiPersonalities] };
     }
+    this.speed = this.setupConfig.speed;
   }
 
   create(): void {
@@ -149,10 +149,6 @@ export class GameScene extends Phaser.Scene {
       this.handleKeyDown(event);
     });
 
-    // Read speed preferences
-    const prefs = loadPreferences();
-    this.isInstantSpeed = prefs.speed === 'instant';
-
     // Initial render
     this.refreshDisplay();
     this.uiRenderer.setStatus('Select a territory to attack from');
@@ -166,6 +162,11 @@ export class GameScene extends Phaser.Scene {
       this.toggleHelpOverlay();
       return;
     }
+
+    // 1/2/3 — change speed (always works, even during AI processing)
+    if (key === '1') { this.setSpeed('normal'); return; }
+    if (key === '2') { this.setSpeed('fast'); return; }
+    if (key === '3') { this.setSpeed('instant'); return; }
 
     // Block all other shortcuts while a dialog is open
     if (this.isDialogOpen) return;
@@ -226,7 +227,7 @@ export class GameScene extends Phaser.Scene {
     const cx = GAME_WIDTH / 2;
     const cy = GAME_HEIGHT / 2;
     const w = 350;
-    const h = 300;
+    const h = 340;
 
     this.helpOverlay = this.add.container(cx, cy).setDepth(1000);
 
@@ -248,6 +249,7 @@ export class GameScene extends Phaser.Scene {
     const shortcuts = [
       ['E / Space', 'End turn'],
       ['Escape', 'Deselect territory'],
+      ['1 / 2 / 3', 'Speed: Normal/Fast/Instant'],
       ['S', 'Surrender'],
       ['R', 'Restart game'],
       ['M', 'Toggle sound'],
@@ -425,7 +427,7 @@ export class GameScene extends Phaser.Scene {
     this.refreshDisplay();
 
     if (this.gameState.phase === 'gameOver') {
-      this.time.delayedCall(1000, () => this.handleGameOver());
+      this.time.delayedCall(this.getDelay(1000), () => this.handleGameOver());
       return;
     }
 
@@ -534,7 +536,8 @@ export class GameScene extends Phaser.Scene {
       result.defenderRolls,
       attackerColor,
       defenderColor,
-      result.attackerWins
+      result.attackerWins,
+      this.getBattleSpeed(1)
     );
 
     this.territoryEffects.hideAttackLine();
@@ -558,7 +561,7 @@ export class GameScene extends Phaser.Scene {
 
     // Check for game over
     if (this.gameState.phase === 'gameOver') {
-      this.time.delayedCall(1500, () => this.handleGameOver());
+      this.time.delayedCall(this.getDelay(1500), () => this.handleGameOver());
       this.isProcessing = false;
       this.refreshDisplay();
       return;
@@ -586,6 +589,9 @@ export class GameScene extends Phaser.Scene {
     after: Map<number, number>,
     playerColor: number
   ): void {
+    if (this.speed === 'instant') return;
+
+    const multiplier = SPEED_CONFIGS[this.speed].multiplier;
     const colorStr = '#' + playerColor.toString(16).padStart(6, '0');
     let staggerIndex = 0;
 
@@ -597,7 +603,7 @@ export class GameScene extends Phaser.Scene {
       const territory = this.gameState.territories[territoryId];
       const x = territory.center.x;
       const y = territory.center.y - 20;
-      const delay = staggerIndex * 50;
+      const delay = staggerIndex * 50 * multiplier;
       staggerIndex++;
 
       this.time.delayedCall(delay, () => {
@@ -614,7 +620,7 @@ export class GameScene extends Phaser.Scene {
           targets: text,
           y: y - 30,
           alpha: 0,
-          duration: 600,
+          duration: 600 * multiplier,
           ease: 'Power1',
           onComplete: () => text.destroy(),
         });
@@ -658,7 +664,7 @@ export class GameScene extends Phaser.Scene {
     this.refreshDisplay();
 
     if ((this.gameState.phase as string) === 'gameOver') {
-      this.time.delayedCall(1000, () => this.handleGameOver());
+      this.time.delayedCall(this.getDelay(1000), () => this.handleGameOver());
       this.isProcessing = false;
       return;
     }
@@ -699,9 +705,7 @@ export class GameScene extends Phaser.Scene {
       this.uiRenderer.setStatus(`${currentPlayer.name} is thinking...`);
       this.refreshDisplay();
 
-      if (!this.isInstantSpeed) {
-        await this.delay(800);
-      }
+      await this.delay(this.getDelay(800));
 
       // Check if AI should surrender before attacking
       if (shouldAISurrender(this.gameState, currentPlayer.id)) {
@@ -712,7 +716,7 @@ export class GameScene extends Phaser.Scene {
         this.refreshDisplay();
 
         if (this.gameState.phase === 'gameOver') {
-          this.time.delayedCall(1000, () => this.handleGameOver());
+          this.time.delayedCall(this.getDelay(1000), () => this.handleGameOver());
           this.isProcessing = false;
           return;
         }
@@ -720,7 +724,7 @@ export class GameScene extends Phaser.Scene {
         // Continue to next player
         const nextPlayer = this.gameState.players[this.gameState.currentPlayerIndex];
         if (!nextPlayer.isHuman && nextPlayer.isAlive) {
-          await this.delay(500);
+          await this.delay(this.getDelay(500));
           await this.processAITurns();
         } else {
           this.isProcessing = false;
@@ -756,17 +760,17 @@ export class GameScene extends Phaser.Scene {
         const defenderColor = PLAYER_COLORS[this.gameState.territories[move.defenderId].owner];
 
         // Highlight attacker then defender territory before attack
-        if (!this.isInstantSpeed) {
+        if (this.speed !== 'instant') {
           this.mapRenderer.highlightTerritory(
             this.gameState.territories[move.attackerId], attackerColor
           );
-          await this.delay(200);
+          await this.delay(this.getDelay(200));
           this.mapRenderer.clearHighlight();
 
           this.mapRenderer.highlightTerritory(
             this.gameState.territories[move.defenderId], defenderColor
           );
-          await this.delay(200);
+          await this.delay(this.getDelay(200));
           this.mapRenderer.clearHighlight();
         }
 
@@ -803,7 +807,7 @@ export class GameScene extends Phaser.Scene {
           attackerColor,
           defenderColor,
           result.attackerWins,
-          2
+          this.getBattleSpeed(2)
         );
 
         this.territoryEffects.hideAttackLine();
@@ -814,9 +818,7 @@ export class GameScene extends Phaser.Scene {
         if (this.gameState.phase === 'gameOver') break;
 
         // Brief pause between consecutive attacks
-        if (!this.isInstantSpeed) {
-          await this.delay(300);
-        }
+        await this.delay(this.getDelay(300));
       }
 
       // Remove thinking indicator
@@ -846,7 +848,7 @@ export class GameScene extends Phaser.Scene {
 
       if ((this.gameState.phase as string) === 'gameOver') {
         this.refreshDisplay();
-        this.time.delayedCall(1000, () => this.handleGameOver());
+        this.time.delayedCall(this.getDelay(1000), () => this.handleGameOver());
         this.isProcessing = false;
         return;
       }
@@ -878,7 +880,7 @@ export class GameScene extends Phaser.Scene {
       this.refreshDisplay();
 
       if ((this.gameState.phase as string) === 'gameOver') {
-        this.time.delayedCall(1000, () => this.handleGameOver());
+        this.time.delayedCall(this.getDelay(1000), () => this.handleGameOver());
         this.isProcessing = false;
         return;
       }
@@ -886,7 +888,7 @@ export class GameScene extends Phaser.Scene {
       // Continue to next AI or back to human
       const nextPlayer = this.gameState.players[this.gameState.currentPlayerIndex];
       if (!nextPlayer.isHuman && nextPlayer.isAlive) {
-        await this.delay(500);
+        await this.delay(this.getDelay(500));
         await this.processAITurns();
       } else {
         this.isProcessing = false;
@@ -903,7 +905,44 @@ export class GameScene extends Phaser.Scene {
   }
 
   private delay(ms: number): Promise<void> {
+    if (ms <= 0) return Promise.resolve();
     return new Promise((resolve) => this.time.delayedCall(ms, resolve));
+  }
+
+  private getDelay(baseMs: number): number {
+    return baseMs * SPEED_CONFIGS[this.speed].multiplier;
+  }
+
+  private getBattleSpeed(baseSpeed: number): number {
+    const multiplier = SPEED_CONFIGS[this.speed].multiplier;
+    if (multiplier === 0) return 0;
+    return baseSpeed / multiplier;
+  }
+
+  private setSpeed(newSpeed: GameSetupConfig['speed']): void {
+    if (this.speed === newSpeed) return;
+    this.speed = newSpeed;
+    const label = SPEED_CONFIGS[newSpeed].label;
+    this.showSpeedNotification(`Speed: ${label}`);
+  }
+
+  private showSpeedNotification(text: string): void {
+    const notification = this.add.text(GAME_WIDTH / 2, 80, text, {
+      fontSize: '18px',
+      color: '#ffffff',
+      fontFamily: 'monospace',
+      fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(500);
+
+    this.tweens.add({
+      targets: notification,
+      alpha: 0,
+      duration: 1500,
+      ease: 'Power1',
+      onComplete: () => notification.destroy(),
+    });
   }
 
   private handleGameOver(): void {

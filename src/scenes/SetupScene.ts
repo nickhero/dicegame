@@ -7,6 +7,8 @@ import {
   TERRITORY_PRESETS,
 } from '../game/GameConfig';
 import { ALL_PERSONALITY_TYPES, PersonalityType } from '../game/AIPersonality';
+import { generateMap, assignTerritories, GRID_COLS, GRID_ROWS } from '../game/MapGenerator';
+import { SeededRandom } from '../utils/random';
 
 type SpeedOption = GameSetupConfig['speed'];
 
@@ -25,7 +27,9 @@ const SPEED_OPTIONS: { label: string; value: SpeedOption }[] = [
   { label: 'Instant', value: 'instant' },
 ];
 
-const PANEL_WIDTH = 480;
+const PANEL_WIDTH = 750;
+const PREVIEW_WIDTH = 230;
+const PREVIEW_HEIGHT = 180;
 const PANEL_HEIGHT = 520;
 const BTN_COLOR = 0x334466;
 const BTN_ACTIVE = 0x4a90d9;
@@ -45,6 +49,10 @@ export class SetupScene extends Phaser.Scene {
   private speedBtns: ButtonGroup[] = [];
   private aiRows: AIRow[] = [];
   private aiContainer!: Phaser.GameObjects.Container;
+  private previewGraphics!: Phaser.GameObjects.Graphics;
+  private previewSeed: number = Math.floor(Math.random() * 2147483646) + 1;
+  private previewX = 0;
+  private previewY = 0;
 
   constructor() {
     super('SetupScene');
@@ -85,6 +93,7 @@ export class SetupScene extends Phaser.Scene {
           this.config.playerCount = n;
           this.refreshPlayerBtns();
           this.rebuildAIRows();
+          this.updatePreview();
         },
       );
       return { value: n, ...btn };
@@ -102,6 +111,7 @@ export class SetupScene extends Phaser.Scene {
         () => {
           this.config.territoryCount = count;
           this.refreshMapBtns();
+          this.updatePreview();
         },
       );
       return { value: count, ...btn };
@@ -141,6 +151,37 @@ export class SetupScene extends Phaser.Scene {
     this.createLargeButton(cx, rowY + 55, 200, 44, 'BACK', 0x555555, 0x777777, () => {
       this.scene.start('MenuScene');
     });
+
+    // --- Map preview area (right side) ---
+    this.previewX = left + PANEL_WIDTH - PREVIEW_WIDTH - 30;
+    this.previewY = top + 80;
+
+    this.add.text(this.previewX + PREVIEW_WIDTH / 2, this.previewY - 18, 'Map Preview', {
+      fontSize: '14px',
+      color: '#aaaaaa',
+      fontFamily: 'monospace',
+    }).setOrigin(0.5);
+
+    const previewBorder = this.add.graphics();
+    previewBorder.lineStyle(1, 0x4a90d9, 0.6);
+    previewBorder.strokeRect(
+      this.previewX - 2, this.previewY - 2,
+      PREVIEW_WIDTH + 4, PREVIEW_HEIGHT + 4,
+    );
+
+    this.previewGraphics = this.add.graphics();
+
+    this.createButton(
+      this.previewX + PREVIEW_WIDTH / 2 - 60,
+      this.previewY + PREVIEW_HEIGHT + 10,
+      120, 28, '🔄 New Map',
+      () => {
+        this.previewSeed = Math.floor(Math.random() * 2147483646) + 1;
+        this.updatePreview();
+      },
+    );
+
+    this.updatePreview();
   }
 
   /* ------------------------------------------------------------------ */
@@ -324,6 +365,48 @@ export class SetupScene extends Phaser.Scene {
   }
 
   /* ------------------------------------------------------------------ */
+  /*  Map preview                                                        */
+  /* ------------------------------------------------------------------ */
+
+  private updatePreview(): void {
+    this.previewGraphics.clear();
+
+    const seed = this.config.mapSeed
+      ? hashSeedString(this.config.mapSeed)
+      : this.previewSeed;
+
+    const rng = new SeededRandom(seed);
+    const { territories } = generateMap(this.config.territoryCount, rng);
+    assignTerritories(territories, this.config.playerCount, new SeededRandom(seed + 1));
+
+    const scaleX = PREVIEW_WIDTH / GRID_COLS;
+    const scaleY = PREVIEW_HEIGHT / GRID_ROWS;
+    const cellScale = Math.min(scaleX, scaleY);
+
+    const drawW = GRID_COLS * cellScale;
+    const drawH = GRID_ROWS * cellScale;
+    const offsetX = this.previewX + (PREVIEW_WIDTH - drawW) / 2;
+    const offsetY = this.previewY + (PREVIEW_HEIGHT - drawH) / 2;
+
+    // Background fill
+    this.previewGraphics.fillStyle(0x0e1628, 1);
+    this.previewGraphics.fillRect(this.previewX, this.previewY, PREVIEW_WIDTH, PREVIEW_HEIGHT);
+
+    for (const territory of territories) {
+      const color = PLAYER_COLORS[territory.owner % PLAYER_COLORS.length];
+      this.previewGraphics.fillStyle(color, 0.85);
+      for (const cell of territory.cells) {
+        this.previewGraphics.fillRect(
+          offsetX + cell.x * cellScale,
+          offsetY + cell.y * cellScale,
+          cellScale - 0.5,
+          cellScale - 0.5,
+        );
+      }
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
   /*  Start game                                                         */
   /* ------------------------------------------------------------------ */
 
@@ -347,6 +430,14 @@ interface ButtonGroup {
   zone: Phaser.GameObjects.Zone;
   text: Phaser.GameObjects.Text;
   redraw: (active: boolean) => void;
+}
+
+function hashSeedString(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash) || 1;
 }
 
 interface AIRow {

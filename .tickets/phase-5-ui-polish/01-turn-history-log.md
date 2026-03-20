@@ -1,6 +1,6 @@
 # Turn History Event Log
 
-- **Status**: open
+- **Status**: done
 - **Phase**: 5
 - **Depends on**: none
 - **Files**: `src/rendering/EventLog.ts` (new), `src/scenes/GameScene.ts`
