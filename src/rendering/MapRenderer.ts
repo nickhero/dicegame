@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { Territory } from '../game/Territory';
 import { GameState } from '../game/GameState';
-import { CELL_SIZE, MAP_OFFSET_X, MAP_OFFSET_Y } from '../game/MapGenerator';
+import { CELL_SIZE, MAP_OFFSET_X, MAP_OFFSET_Y, GRID_COLS, GRID_ROWS, hexCellToPixel } from '../game/MapGenerator';
 import { PLAYER_COLORS } from '../config';
 
 export class MapRenderer {
@@ -63,15 +63,94 @@ export class MapRenderer {
 
     this.graphics.fillStyle(fillColor, alpha);
 
-    // Draw each cell as a filled rectangle
-    for (const cell of territory.cells) {
-      const x = MAP_OFFSET_X + cell.x * CELL_SIZE;
-      const y = MAP_OFFSET_Y + cell.y * CELL_SIZE;
-      this.graphics.fillRect(x, y, CELL_SIZE, CELL_SIZE);
+    if (territory.gridType === 'hex') {
+      const radius = CELL_SIZE / 2;
+      for (const cell of territory.cells) {
+        const { x: cx, y: cy } = hexCellToPixel(cell.x, cell.y);
+        this.fillHex(cx, cy, radius);
+      }
+    } else {
+      // Draw each cell as a filled rectangle
+      for (const cell of territory.cells) {
+        const x = MAP_OFFSET_X + cell.x * CELL_SIZE;
+        const y = MAP_OFFSET_Y + cell.y * CELL_SIZE;
+        this.graphics.fillRect(x, y, CELL_SIZE, CELL_SIZE);
+      }
     }
   }
 
+  private fillHex(cx: number, cy: number, radius: number): void {
+    this.graphics.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const angleRad = (Math.PI / 180) * (60 * i - 90);
+      const vx = cx + radius * Math.cos(angleRad);
+      const vy = cy + radius * Math.sin(angleRad);
+      if (i === 0) this.graphics.moveTo(vx, vy);
+      else this.graphics.lineTo(vx, vy);
+    }
+    this.graphics.closePath();
+    this.graphics.fillPath();
+  }
+
   private drawBorders(state: GameState): void {
+    const isHex = state.territories.length > 0 && state.territories[0].gridType === 'hex';
+    if (isHex) {
+      this.drawHexBorders(state);
+    } else {
+      this.drawSquareBorders(state);
+    }
+  }
+
+  private drawHexBorders(state: GameState): void {
+    this.graphics.lineStyle(2, 0x111122, 1);
+    const radius = CELL_SIZE / 2;
+
+    const cellToTerritory = new Map<string, number>();
+    for (const t of state.territories) {
+      for (const c of t.cells) {
+        cellToTerritory.set(`${c.x},${c.y}`, t.id);
+      }
+    }
+
+    const hexDirsEven = [[-1, 0], [1, 0], [-1, -1], [1, -1], [0, -1], [0, 1]];
+    const hexDirsOdd = [[-1, 0], [1, 0], [-1, 1], [1, 1], [0, -1], [0, 1]];
+
+    for (const territory of state.territories) {
+      for (const cell of territory.cells) {
+        const dirs = cell.x % 2 === 0 ? hexDirsEven : hexDirsOdd;
+        let isBoundary = false;
+        for (const [dc, dr] of dirs) {
+          const nc = cell.x + dc;
+          const nr = cell.y + dr;
+          if (nc < 0 || nc >= GRID_COLS || nr < 0 || nr >= GRID_ROWS) {
+            isBoundary = true;
+            break;
+          }
+          const nid = cellToTerritory.get(`${nc},${nr}`);
+          if (nid !== undefined && nid !== territory.id) {
+            isBoundary = true;
+            break;
+          }
+        }
+
+        if (isBoundary) {
+          const { x: cx, y: cy } = hexCellToPixel(cell.x, cell.y);
+          this.graphics.beginPath();
+          for (let i = 0; i < 6; i++) {
+            const angleRad = (Math.PI / 180) * (60 * i - 90);
+            const vx = cx + radius * Math.cos(angleRad);
+            const vy = cy + radius * Math.sin(angleRad);
+            if (i === 0) this.graphics.moveTo(vx, vy);
+            else this.graphics.lineTo(vx, vy);
+          }
+          this.graphics.closePath();
+          this.graphics.strokePath();
+        }
+      }
+    }
+  }
+
+  private drawSquareBorders(state: GameState): void {
     this.graphics.lineStyle(2, 0x111122, 1);
 
     for (const territory of state.territories) {

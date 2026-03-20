@@ -71,6 +71,70 @@ describe('generateMap', () => {
   });
 });
 
+describe('generateMap (hex grid)', () => {
+  it('generates valid territories', () => {
+    const rng = new SeededRandom(42);
+    const { territories } = generateMap(28, rng, 'hex');
+    expect(territories.length).toBeGreaterThan(0);
+    for (const t of territories) {
+      expect(t.cells.length).toBeGreaterThan(0);
+      expect(t.gridType).toBe('hex');
+    }
+  });
+
+  it('hex territories have correct neighbor counts (up to 6)', () => {
+    const rng = new SeededRandom(42);
+    const { territories } = generateMap(28, rng, 'hex');
+    for (const t of territories) {
+      expect(t.neighbors.length).toBeLessThanOrEqual(6 * t.cells.length);
+      // Each territory should have a reasonable number of neighbors
+      expect(t.neighbors.length).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it('adjacency is symmetric for hex grid', () => {
+    const rng = new SeededRandom(42);
+    const { territories, adjacency } = generateMap(28, rng, 'hex');
+    for (const t of territories) {
+      for (const nId of t.neighbors) {
+        expect(adjacency.get(nId)!.has(t.id)).toBe(true);
+      }
+    }
+  });
+
+  it('every hex territory has at least 1 neighbor', () => {
+    const rng = new SeededRandom(99);
+    const { territories } = generateMap(20, rng, 'hex');
+    for (const t of territories) {
+      expect(t.neighbors.length).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it('hex grid produces similar territory count to square grid', () => {
+    for (const count of [15, 20, 25]) {
+      const hexResult = generateMap(count, new SeededRandom(count), 'hex');
+      const squareResult = generateMap(count, new SeededRandom(count), 'square');
+      // Both should produce close to the requested count
+      expect(hexResult.territories.length).toBeGreaterThanOrEqual(count - 5);
+      expect(hexResult.territories.length).toBeLessThanOrEqual(count);
+      expect(squareResult.territories.length).toBeGreaterThanOrEqual(count - 5);
+    }
+  });
+
+  it('no cell belongs to two hex territories', () => {
+    const rng = new SeededRandom(42);
+    const { territories } = generateMap(28, rng, 'hex');
+    const cellSet = new Set<string>();
+    for (const t of territories) {
+      for (const c of t.cells) {
+        const key = `${c.x},${c.y}`;
+        expect(cellSet.has(key)).toBe(false);
+        cellSet.add(key);
+      }
+    }
+  });
+});
+
 describe('assignTerritories', () => {
   it('assigns all territories to players', () => {
     const rng = new SeededRandom(42);

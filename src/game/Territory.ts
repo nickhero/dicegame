@@ -10,4 +10,5 @@ export interface Territory {
   neighbors: number[]; // adjacent territory IDs
   owner: number;       // player index (-1 = unowned)
   dice: number;        // dice count (1–8)
+  gridType?: 'square' | 'hex';
 }
