@@ -1,14 +1,14 @@
 import Phaser from 'phaser';
-import { GAME_WIDTH, GAME_HEIGHT } from '../config';
+import { GAME_HEIGHT } from '../config';
 
-const DEFAULT_X = 10;
-const DEFAULT_Y = GAME_HEIGHT - 110;
-const PANEL_W = 520;
-const PANEL_H = 100;
-const LINE_HEIGHT = 13;
-const FONT_SIZE = '11px';
-const MAX_EVENTS = 50;
-const VISIBLE_LINES = Math.floor((PANEL_H - 10) / LINE_HEIGHT);
+const PANEL_X = 10;
+const PANEL_Y = 10;
+const PANEL_W = 200;
+const PANEL_H = GAME_HEIGHT - 20;
+const LINE_HEIGHT = 14;
+const FONT_SIZE = '10px';
+const MAX_EVENTS = 100;
+const VISIBLE_LINES = Math.floor((PANEL_H - 24) / LINE_HEIGHT);
 
 export class EventLog {
   private scene: Phaser.Scene;
@@ -17,43 +17,41 @@ export class EventLog {
   private events: { text: string; color: number }[] = [];
   private textObjects: Phaser.GameObjects.Text[] = [];
   private scrollOffset = 0;
-  private maskShape: Phaser.GameObjects.Graphics;
   private mask!: Phaser.Display.Masks.GeometryMask;
-  private panelX: number;
-  private panelY: number;
-  private dragZone: Phaser.GameObjects.Zone;
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
-    this.panelX = DEFAULT_X;
-    this.panelY = DEFAULT_Y;
     this.container = scene.add.container(0, 0).setDepth(99);
 
     this.bg = scene.add.graphics();
+    this.bg.fillStyle(0x111122, 0.8);
+    this.bg.fillRoundedRect(PANEL_X, PANEL_Y, PANEL_W, PANEL_H, 4);
+    // Header
+    this.bg.fillStyle(0x334455, 0.6);
+    this.bg.fillRect(PANEL_X, PANEL_Y, PANEL_W, 16);
     this.container.add(this.bg);
 
+    const title = scene.add.text(PANEL_X + 6, PANEL_Y + 2, 'EVENT LOG', {
+      fontSize: '10px', color: '#8899aa', fontFamily: 'monospace',
+    });
+    this.container.add(title);
+
     // Mask to clip text within panel bounds
-    this.maskShape = scene.add.graphics();
-    this.maskShape.setVisible(false);
-    this.mask = this.maskShape.createGeometryMask();
+    const maskShape = scene.add.graphics();
+    maskShape.fillStyle(0xffffff);
+    maskShape.fillRect(PANEL_X, PANEL_Y + 18, PANEL_W, PANEL_H - 22);
+    maskShape.setVisible(false);
+    this.mask = maskShape.createGeometryMask();
 
-    // Interactive zone for drag + scroll
-    this.dragZone = scene.add.zone(0, 0, PANEL_W, PANEL_H).setInteractive({
-      useHandCursor: true,
-      draggable: true,
-    });
-    this.container.add(this.dragZone);
+    // Interactive zone for scroll
+    const zone = scene.add.zone(
+      PANEL_X + PANEL_W / 2,
+      PANEL_Y + PANEL_H / 2,
+      PANEL_W,
+      PANEL_H
+    ).setInteractive();
+    this.container.add(zone);
 
-    // Drag handling
-    scene.input.setDraggable(this.dragZone);
-    this.dragZone.on('drag', (_pointer: Phaser.Input.Pointer, dragX: number, dragY: number) => {
-      this.panelX = Phaser.Math.Clamp(dragX - PANEL_W / 2, 0, GAME_WIDTH - PANEL_W);
-      this.panelY = Phaser.Math.Clamp(dragY - PANEL_H / 2, 0, GAME_HEIGHT - PANEL_H);
-      this.redrawPanel();
-      this.rebuildText();
-    });
-
-    // Scroll handling
     scene.input.on('wheel', (
       pointer: Phaser.Input.Pointer,
       _over: Phaser.GameObjects.GameObject[],
@@ -62,31 +60,14 @@ export class EventLog {
       dz: number,
     ) => {
       if (
-        pointer.x >= this.panelX &&
-        pointer.x <= this.panelX + PANEL_W &&
-        pointer.y >= this.panelY &&
-        pointer.y <= this.panelY + PANEL_H
+        pointer.x >= PANEL_X &&
+        pointer.x <= PANEL_X + PANEL_W &&
+        pointer.y >= PANEL_Y &&
+        pointer.y <= PANEL_Y + PANEL_H
       ) {
         this.scroll(dz > 0 ? 1 : -1);
       }
     });
-
-    this.redrawPanel();
-  }
-
-  private redrawPanel(): void {
-    this.bg.clear();
-    this.bg.fillStyle(0x111122, 0.8);
-    this.bg.fillRoundedRect(this.panelX, this.panelY, PANEL_W, PANEL_H, 4);
-    // Thin drag-handle line at top
-    this.bg.fillStyle(0x334455, 0.6);
-    this.bg.fillRect(this.panelX + PANEL_W / 2 - 30, this.panelY + 2, 60, 2);
-
-    this.maskShape.clear();
-    this.maskShape.fillStyle(0xffffff);
-    this.maskShape.fillRect(this.panelX, this.panelY + 4, PANEL_W, PANEL_H - 8);
-
-    this.dragZone.setPosition(this.panelX + PANEL_W / 2, this.panelY + PANEL_H / 2);
   }
 
   addEvent(text: string, color: number = 0xcccccc): void {
@@ -148,8 +129,8 @@ export class EventLog {
       const colorStr = '#' + ev.color.toString(16).padStart(6, '0');
 
       const txt = this.scene.add.text(
-        this.panelX + 6,
-        this.panelY + 5 + lineIndex * LINE_HEIGHT,
+        PANEL_X + 6,
+        PANEL_Y + 20 + lineIndex * LINE_HEIGHT,
         ev.text,
         {
           fontSize: FONT_SIZE,

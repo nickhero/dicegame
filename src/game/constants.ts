@@ -19,5 +19,5 @@ export const MAX_DICE_PER_TERRITORY = 8;
 export const MAX_RESERVE_DICE = 32;
 export const DEFAULT_TERRITORY_COUNT = 28;
 export const DEFAULT_PLAYER_COUNT = 4;
-export const GAME_WIDTH = 900;
+export const GAME_WIDTH = 1100;
 export const GAME_HEIGHT = 700;

@@ -5,7 +5,7 @@ import { MapShape, getShapeMask } from './MapShapes';
 const GRID_COLS = 20;
 const GRID_ROWS = 16;
 const CELL_SIZE = 32;
-const MAP_OFFSET_X = 60;
+const MAP_OFFSET_X = 220;
 const MAP_OFFSET_Y = 60;
 
 interface Cell {
