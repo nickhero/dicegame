@@ -1,6 +1,6 @@
 # Refactor AI to Use Personality Config
 
-- **Status**: open
+- **Status**: done
 - **Phase**: 1
 - **Depends on**: `01-define-personality-types`
 - **Files**: `src/game/AIPlayer.ts`

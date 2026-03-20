@@ -1,3 +1,5 @@
+import { PersonalityType } from './AIPersonality';
+
 export interface Player {
   id: number;
   name: string;
@@ -5,13 +7,15 @@ export interface Player {
   isAlive: boolean;
   reserveDice: number; // surplus dice stored when all territories are at max
   color: number;       // hex color
+  personality: PersonalityType | null; // null for human players
 }
 
 export function createPlayer(
   id: number,
   name: string,
   isHuman: boolean,
-  color: number
+  color: number,
+  personality: PersonalityType | null = null,
 ): Player {
   return {
     id,
@@ -20,5 +24,6 @@ export function createPlayer(
     isAlive: true,
     reserveDice: 0,
     color,
+    personality,
   };
 }

@@ -1,6 +1,6 @@
 # Test All AI Personalities
 
-- **Status**: open
+- **Status**: done
 - **Phase**: 1
 - **Depends on**: `01-define-personality-types`
 - **Files**: `tests/game/AIPersonality.test.ts` (new), `tests/game/AIPlayer.test.ts`

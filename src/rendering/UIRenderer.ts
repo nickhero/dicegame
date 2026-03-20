@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { GameState } from '../game/GameState';
+import { PERSONALITIES } from '../game/AIPersonality';
 import { PLAYER_COLORS, PLAYER_COLOR_STRINGS, GAME_WIDTH, GAME_HEIGHT } from '../config';
 
 export class UIRenderer {
@@ -23,7 +24,7 @@ export class UIRenderer {
     // Player info panel background
     const panelBg = this.scene.add.graphics();
     panelBg.fillStyle(0x111122, 0.85);
-    panelBg.fillRoundedRect(panelX - 10, 10, 190, 200, 6);
+    panelBg.fillRoundedRect(panelX - 10, 10, 190, 240, 6);
     this.container.add(panelBg);
 
     // Turn indicator
@@ -35,10 +36,10 @@ export class UIRenderer {
     });
     this.container.add(this.turnText);
 
-    // Player info slots (up to 4 players)
-    for (let i = 0; i < 4; i++) {
+    // Player info slots (up to 6 players)
+    for (let i = 0; i < 6; i++) {
       const text = this.scene.add.text(panelX, 50 + i * 35, '', {
-        fontSize: '13px',
+        fontSize: '12px',
         color: '#ffffff',
         fontFamily: 'monospace',
       });
@@ -57,7 +58,7 @@ export class UIRenderer {
     this.container.add(this.statusText);
 
     // End turn button
-    this.endTurnBtn = this.createEndTurnButton(panelX, 195);
+    this.endTurnBtn = this.createEndTurnButton(panelX, 235);
     this.container.add(this.endTurnBtn);
   }
 
@@ -103,7 +104,11 @@ export class UIRenderer {
   update(state: GameState): void {
     this.turnText.setText(`Turn ${state.turnNumber}`);
 
-    for (let i = 0; i < state.players.length && i < 4; i++) {
+    for (let i = 0; i < this.playerInfoTexts.length; i++) {
+      if (i >= state.players.length) {
+        this.playerInfoTexts[i].setText('');
+        continue;
+      }
       const p = state.players[i];
       const territories = state.territories.filter((t) => t.owner === p.id).length;
       const totalDice = state.territories
@@ -112,7 +117,16 @@ export class UIRenderer {
 
       const marker = i === state.currentPlayerIndex ? '▶ ' : '  ';
       const status = p.isAlive ? `${territories}T ${totalDice}D` : 'DEAD';
-      const name = p.isHuman ? `${p.name} (You)` : p.name;
+
+      let name: string;
+      if (p.isHuman) {
+        name = `${p.name} (You)`;
+      } else if (p.personality) {
+        const label = PERSONALITIES[p.personality].label;
+        name = `${p.name} (${label})`;
+      } else {
+        name = p.name;
+      }
 
       this.playerInfoTexts[i].setText(`${marker}${name}\n   ${status}`);
       this.playerInfoTexts[i].setColor(

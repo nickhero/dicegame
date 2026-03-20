@@ -1,6 +1,13 @@
 import { GameState } from './GameState';
 import { SeededRandom } from '../utils/random';
 import { canAttackFrom, isValidAttack, executeAttack } from './GameRules';
+import {
+  AIPersonality,
+  PERSONALITIES,
+  PersonalityType,
+  scoreMove,
+  filterMovesByPersonality,
+} from './AIPersonality';
 
 export interface AIMove {
   attackerId: number;
@@ -35,46 +42,60 @@ export function findPossibleMoves(state: GameState): AIMove[] {
 }
 
 /**
- * Select the best move for the AI.
- * Strategy: attack when advantage ≥ 1, prefer largest advantage.
+ * Resolve the personality config for the current AI player.
  */
-export function selectBestMove(
-  state: GameState,
-  rng: SeededRandom
-): AIMove | null {
-  const moves = findPossibleMoves(state);
-
-  // Only attack when we have an advantage
-  const favorableMoves = moves.filter((m) => m.advantage >= 1);
-
-  if (favorableMoves.length === 0) return null;
-
-  // Sort by advantage (descending), pick best with some randomness
-  favorableMoves.sort((a, b) => b.advantage - a.advantage);
-
-  // Pick from the top moves (within 1 of the best advantage)
-  const bestAdvantage = favorableMoves[0].advantage;
-  const topMoves = favorableMoves.filter(
-    (m) => m.advantage >= bestAdvantage - 1
-  );
-
-  return rng.pick(topMoves);
+function getPersonality(state: GameState): AIPersonality {
+  const player = state.players[state.currentPlayerIndex];
+  const type: PersonalityType = player.personality ?? 'balanced';
+  return PERSONALITIES[type];
 }
 
 /**
- * Execute one AI turn: make attacks until no favorable moves remain.
+ * Select the best move for the AI based on its personality.
+ */
+export function selectBestMove(
+  state: GameState,
+  rng: SeededRandom,
+  personalityOverride?: AIPersonality,
+): AIMove | null {
+  const personality = personalityOverride ?? getPersonality(state);
+  const moves = findPossibleMoves(state);
+
+  const validMoves = filterMovesByPersonality(moves, personality);
+  if (validMoves.length === 0) return null;
+
+  // Score each move using the personality's scoring function
+  const scored = validMoves.map((m) => ({
+    move: m,
+    score: scoreMove(m, personality, state),
+  }));
+
+  scored.sort((a, b) => b.score - a.score);
+
+  // Pick from top moves (within 1 point of best score) with randomness
+  const bestScore = scored[0].score;
+  const topMoves = scored.filter((s) => s.score >= bestScore - 1);
+
+  return rng.pick(topMoves).move;
+}
+
+/**
+ * Execute one AI turn: make attacks until no favorable moves remain
+ * or the personality's attack limit is reached.
  * Returns list of battle results for animation.
  */
 export function executeAITurn(
   state: GameState,
-  rng: SeededRandom
+  rng: SeededRandom,
+  personalityOverride?: AIPersonality,
 ): { attackerId: number; defenderId: number }[] {
+  const personality = personalityOverride ?? getPersonality(state);
   const attacks: { attackerId: number; defenderId: number }[] = [];
   let safety = 0;
 
-  while (safety < 50) {
+  while (safety < 50 && attacks.length < personality.maxAttacksPerTurn) {
     safety++;
-    const move = selectBestMove(state, rng);
+    const move = selectBestMove(state, rng, personality);
     if (!move) break;
 
     if (!isValidAttack(move.attackerId, move.defenderId, state)) break;

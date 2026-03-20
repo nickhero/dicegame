@@ -1,6 +1,6 @@
 # Define AI Personality Types
 
-- **Status**: open
+- **Status**: done
 - **Phase**: 1
 - **Depends on**: none
 - **Files**: `src/game/AIPersonality.ts` (new)

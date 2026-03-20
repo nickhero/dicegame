@@ -1,6 +1,6 @@
 # Assign Personalities at Game Start
 
-- **Status**: open
+- **Status**: done
 - **Phase**: 1
 - **Depends on**: `02-refactor-ai-personality`
 - **Files**: `src/game/Player.ts`, `src/scenes/GameScene.ts`

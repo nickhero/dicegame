@@ -11,6 +11,7 @@ import {
   getValidTargets,
 } from '../game/GameRules';
 import { executeAITurn } from '../game/AIPlayer';
+import { getRandomPersonality, PERSONALITIES } from '../game/AIPersonality';
 import { SeededRandom } from '../utils/random';
 import { MapRenderer } from '../rendering/MapRenderer';
 import { DiceRenderer, createDiceTextures } from '../rendering/DiceRenderer';
@@ -39,12 +40,12 @@ export class GameScene extends Phaser.Scene {
     // Generate map
     const { territories, adjacency } = generateMap(DEFAULT_TERRITORY_COUNT, this.rng);
 
-    // Create players
+    // Create players — assign random AI personalities
     const players = [
       createPlayer(0, 'Player', true, PLAYER_COLORS[0]),
-      createPlayer(1, 'AI Red', false, PLAYER_COLORS[1]),
-      createPlayer(2, 'AI Green', false, PLAYER_COLORS[2]),
-      createPlayer(3, 'AI Yellow', false, PLAYER_COLORS[3]),
+      createPlayer(1, 'AI Red', false, PLAYER_COLORS[1], getRandomPersonality(this.rng)),
+      createPlayer(2, 'AI Green', false, PLAYER_COLORS[2], getRandomPersonality(this.rng)),
+      createPlayer(3, 'AI Yellow', false, PLAYER_COLORS[3], getRandomPersonality(this.rng)),
     ];
 
     // Assign territories and dice

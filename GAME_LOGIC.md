@@ -84,22 +84,36 @@ Probability of attacker winning (percentages):
 
 ## AI Behavior
 
-### Strategy: Greedy with Threshold
+### Personality System
 
-The AI uses a simple but effective greedy strategy:
+Each AI opponent has a **personality** that determines their attack strategy. Personalities are assigned randomly at game start and displayed in the HUD.
+
+| Personality | Min Advantage | Max Attacks/Turn | Special |
+|-------------|---------------|------------------|---------|
+| **Cautious** | +2 | 3 | Only attacks when very safe |
+| **Balanced** | +1 | ∞ | Standard strategy |
+| **Aggressive** | 0 | ∞ | Attacks at equal odds |
+| **Reckless** | -1 | ∞ | Attacks even at disadvantage |
+| **Expansionist** | +1 | ∞ | Bonus for connecting territory groups |
+| **Turtle** | +3 | 2 | Hoards dice, rarely attacks |
+
+### How AI Decisions Work
 
 1. **Find all possible attacks** — Territories with >1 die adjacent to enemies
-2. **Filter to favorable attacks** — Only consider attacks where `own_dice - enemy_dice ≥ 1`
-3. **Rank by advantage** — Sort attacks by dice advantage (descending)
-4. **Select with randomness** — Pick randomly from top moves (within 1 of the best advantage) to add unpredictability
-5. **Repeat** — Continue attacking until no favorable moves remain
+2. **Filter by personality** — Only consider attacks meeting the personality's minimum advantage threshold
+3. **Score moves** — Base score = dice advantage. Expansionist adds bonus for moves that connect disconnected territory groups.
+4. **Select with randomness** — Pick randomly from top-scored moves (within 1 point of best)
+5. **Repeat** — Continue attacking until no valid moves remain or attack limit is reached
 6. **End turn** — Automatically end turn
 
-### AI Characteristics
-- **Conservative** — Won't attack with equal or fewer dice
-- **Opportunistic** — Takes easy targets (large advantage) first
-- **Somewhat random** — Doesn't always pick the mathematically optimal move
-- **No long-term planning** — Doesn't consider multi-step consequences
+### Personality Characteristics
+
+- **Cautious**: Slow but safe. Rarely loses battles but may fall behind in territory.
+- **Balanced**: Well-rounded. The default "smart" player.
+- **Aggressive**: Expands quickly but fragile. Can snowball or collapse early.
+- **Reckless**: Chaotic. Makes exciting but often suicidal attacks.
+- **Expansionist**: Prioritizes connecting isolated territory groups for larger contiguous bonuses.
+- **Turtle**: Almost never attacks. Accumulates huge dice reserves. Extremely dangerous if it survives to late game.
 
 ## Seeded Random Number Generator
 

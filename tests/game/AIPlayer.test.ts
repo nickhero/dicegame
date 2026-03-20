@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { findPossibleMoves, selectBestMove, executeAITurn } from '../../src/game/AIPlayer';
+import { PERSONALITIES } from '../../src/game/AIPersonality';
 import { GameState, createInitialGameState } from '../../src/game/GameState';
 import { Territory } from '../../src/game/Territory';
 import { createPlayer } from '../../src/game/Player';
@@ -20,7 +21,7 @@ function createAITestState(): GameState {
 
   const players = [
     createPlayer(0, 'Human', true, 0x4a90d9),
-    createPlayer(1, 'AI', false, 0xd94a4a),
+    createPlayer(1, 'AI', false, 0xd94a4a, 'balanced'),
   ];
 
   // Set to AI's turn
@@ -93,5 +94,49 @@ describe('executeAITurn', () => {
       // All attacks should have been from AI territories to enemy territories
       expect(attack.attackerId).not.toBe(attack.defenderId);
     }
+  });
+
+  it('respects maxAttacksPerTurn for cautious personality', () => {
+    const state = createAITestState();
+    // Give AI lots of strong territories
+    state.territories[1].dice = 8;
+    state.territories[3].dice = 8;
+    state.territories[0].dice = 1;
+    state.territories[2].dice = 1;
+    state.players[1].personality = 'cautious';
+
+    const rng = new SeededRandom(42);
+    const attacks = executeAITurn(state, rng);
+    expect(attacks.length).toBeLessThanOrEqual(PERSONALITIES.cautious.maxAttacksPerTurn);
+  });
+
+  it('reckless personality attacks even at disadvantage', () => {
+    const state = createAITestState();
+    // AI (player 1) has weak territories
+    state.territories[1].dice = 2;
+    state.territories[3].dice = 3;
+    state.territories[0].dice = 4;
+    state.territories[2].dice = 4;
+    state.players[1].personality = 'reckless';
+
+    const rng = new SeededRandom(42);
+    const attacks = executeAITurn(state, rng);
+    // Reckless should still try to attack despite disadvantage
+    expect(attacks.length).toBeGreaterThan(0);
+  });
+
+  it('turtle personality attacks very rarely', () => {
+    const state = createAITestState();
+    // AI has slight advantage
+    state.territories[1].dice = 4;
+    state.territories[3].dice = 4;
+    state.territories[0].dice = 3;
+    state.territories[2].dice = 3;
+    state.players[1].personality = 'turtle';
+
+    const rng = new SeededRandom(42);
+    const attacks = executeAITurn(state, rng);
+    // Turtle needs advantage >= 3 so with +1 advantage it won't attack
+    expect(attacks.length).toBe(0);
   });
 });

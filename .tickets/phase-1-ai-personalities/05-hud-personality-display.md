@@ -1,6 +1,6 @@
 # Show Personality in HUD
 
-- **Status**: open
+- **Status**: done
 - **Phase**: 1
 - **Depends on**: `03-assign-personalities`
 - **Files**: `src/rendering/UIRenderer.ts`
