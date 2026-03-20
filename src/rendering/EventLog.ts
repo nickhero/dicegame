@@ -114,34 +114,32 @@ export class EventLog {
   }
 
   private rebuildText(): void {
-    // Remove old text objects
     for (const t of this.textObjects) {
       t.destroy();
     }
     this.textObjects = [];
 
-    const start = this.scrollOffset;
-    const end = Math.min(this.events.length, start + VISIBLE_LINES);
+    const contentTop = PANEL_Y + 20;
+    const contentBottom = PANEL_Y + PANEL_H - 4;
+    let curY = contentTop;
 
-    for (let i = start; i < end; i++) {
+    for (let i = this.scrollOffset; i < this.events.length; i++) {
+      if (curY >= contentBottom) break;
+
       const ev = this.events[i];
-      const lineIndex = i - start;
       const colorStr = '#' + ev.color.toString(16).padStart(6, '0');
 
-      const txt = this.scene.add.text(
-        PANEL_X + 6,
-        PANEL_Y + 20 + lineIndex * LINE_HEIGHT,
-        ev.text,
-        {
-          fontSize: FONT_SIZE,
-          color: colorStr,
-          fontFamily: 'monospace',
-          wordWrap: { width: PANEL_W - 16 },
-        }
-      );
+      const txt = this.scene.add.text(PANEL_X + 6, curY, ev.text, {
+        fontSize: FONT_SIZE,
+        color: colorStr,
+        fontFamily: 'monospace',
+        wordWrap: { width: PANEL_W - 16 },
+      });
       txt.setMask(this.mask);
       this.container.add(txt);
       this.textObjects.push(txt);
+
+      curY += txt.height + 2;
     }
   }
 }
