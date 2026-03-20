@@ -2,9 +2,9 @@ import Phaser from 'phaser';
 import { GAME_HEIGHT } from '../config';
 
 const PANEL_X = 10;
-const PANEL_Y = GAME_HEIGHT - 200;
-const PANEL_W = 280;
-const PANEL_H = 180;
+const PANEL_Y = GAME_HEIGHT - 110;
+const PANEL_W = 520;
+const PANEL_H = 100;
 const LINE_HEIGHT = 13;
 const FONT_SIZE = '11px';
 const MAX_EVENTS = 50;
