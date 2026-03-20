@@ -52,7 +52,7 @@ export class MenuScene extends Phaser.Scene {
     });
 
     hitZone.on('pointerdown', () => {
-      this.scene.start('GameScene');
+      this.scene.start('SetupScene');
     });
   }
 }

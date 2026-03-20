@@ -74,11 +74,15 @@ export class DiceRenderer {
   /**
    * Redraw all dice stacks on territories.
    */
-  drawDiceStacks(territories: Territory[]): void {
+  drawDiceStacks(territories: Territory[], visibleSet?: Set<number>): void {
     this.clear();
 
     for (const territory of territories) {
-      this.drawStack(territory);
+      if (visibleSet && !visibleSet.has(territory.id)) {
+        this.drawHiddenIndicator(territory);
+      } else {
+        this.drawStack(territory);
+      }
     }
   }
 
@@ -115,6 +119,22 @@ export class DiceRenderer {
     }).setOrigin(0.5).setDepth(20);
 
     this.diceCountTexts.push(countText);
+  }
+
+  private drawHiddenIndicator(territory: Territory): void {
+    const cx = territory.center.x;
+    const cy = territory.center.y;
+
+    const text = this.scene.add.text(cx, cy, '?', {
+      fontSize: '18px',
+      color: '#aaaaaa',
+      fontFamily: 'monospace',
+      fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(20);
+
+    this.diceCountTexts.push(text);
   }
 
   clear(): void {

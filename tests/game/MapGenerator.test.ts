@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { generateMap, assignTerritories } from '../../src/game/MapGenerator';
+import { generateMap, assignTerritories, GRID_COLS, GRID_ROWS } from '../../src/game/MapGenerator';
+import { getShapeMask, MapShape } from '../../src/game/MapShapes';
 import { SeededRandom } from '../../src/utils/random';
 
 describe('generateMap', () => {
@@ -171,6 +172,86 @@ describe('assignTerritories', () => {
     for (const t of territories) {
       expect(t.dice).toBeGreaterThanOrEqual(2);
       expect(t.dice).toBeLessThanOrEqual(4);
+    }
+  });
+});
+
+describe('generateMap (map shapes)', () => {
+  const shapes: MapShape[] = ['rectangle', 'diamond', 'ring', 'continent'];
+
+  for (const shape of shapes) {
+    it(`${shape} shape produces valid territories`, () => {
+      const rng = new SeededRandom(42);
+      const { territories } = generateMap(20, rng, 'square', shape);
+      expect(territories.length).toBeGreaterThan(0);
+      for (const t of territories) {
+        expect(t.cells.length).toBeGreaterThan(0);
+        expect(t.neighbors.length).toBeGreaterThanOrEqual(1);
+      }
+    });
+  }
+
+  for (const shape of shapes) {
+    it(`${shape} shape has symmetric adjacency`, () => {
+      const rng = new SeededRandom(42);
+      const { territories, adjacency } = generateMap(20, rng, 'square', shape);
+      for (const t of territories) {
+        for (const nId of t.neighbors) {
+          expect(adjacency.get(nId)!.has(t.id)).toBe(true);
+        }
+      }
+    });
+  }
+
+  it('diamond shape has fewer cells than rectangle', () => {
+    const rng1 = new SeededRandom(42);
+    const rng2 = new SeededRandom(42);
+    const rectResult = generateMap(20, rng1, 'square', 'rectangle');
+    const diamondResult = generateMap(20, rng2, 'square', 'diamond');
+    const rectCells = rectResult.territories.reduce((s, t) => s + t.cells.length, 0);
+    const diamondCells = diamondResult.territories.reduce((s, t) => s + t.cells.length, 0);
+    expect(diamondCells).toBeLessThan(rectCells);
+  });
+
+  it('ring shape has empty center', () => {
+    const mask = getShapeMask('ring', GRID_COLS, GRID_ROWS);
+    const centerCol = Math.floor((GRID_COLS - 1) / 2);
+    const centerRow = Math.floor((GRID_ROWS - 1) / 2);
+    // Center cells should be invalid
+    expect(mask[centerRow][centerCol]).toBe(false);
+    expect(mask[centerRow][centerCol + 1]).toBe(false);
+  });
+
+  it('continent shape has a bridge connecting two land masses', () => {
+    const mask = getShapeMask('continent', GRID_COLS, GRID_ROWS);
+    const splitCol = Math.floor(GRID_COLS * 0.4);
+    const gapLeft = splitCol - 1;
+    const gapRight = splitCol;
+    const bridgeMidRow = Math.floor(GRID_ROWS / 2);
+
+    // Gap cells outside bridge should be invalid
+    expect(mask[0][gapLeft]).toBe(false);
+    expect(mask[0][gapRight]).toBe(false);
+
+    // Bridge cells should be valid
+    expect(mask[bridgeMidRow - 1][gapLeft]).toBe(true);
+    expect(mask[bridgeMidRow - 1][gapRight]).toBe(true);
+    expect(mask[bridgeMidRow][gapLeft]).toBe(true);
+    expect(mask[bridgeMidRow][gapRight]).toBe(true);
+
+    // Left and right land masses should exist
+    expect(mask[0][0]).toBe(true);
+    expect(mask[0][GRID_COLS - 1]).toBe(true);
+  });
+
+  it('default behavior is unchanged (no shape param)', () => {
+    const rng1 = new SeededRandom(42);
+    const rng2 = new SeededRandom(42);
+    const defaultResult = generateMap(20, rng1);
+    const rectResult = generateMap(20, rng2, 'square', 'rectangle');
+    expect(defaultResult.territories.length).toBe(rectResult.territories.length);
+    for (let i = 0; i < defaultResult.territories.length; i++) {
+      expect(defaultResult.territories[i].center).toEqual(rectResult.territories[i].center);
     }
   });
 });

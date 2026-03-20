@@ -1,5 +1,6 @@
 import { Territory, Point } from './Territory';
 import { SeededRandom } from '../utils/random';
+import { MapShape, getShapeMask } from './MapShapes';
 
 const GRID_COLS = 20;
 const GRID_ROWS = 16;
@@ -46,14 +47,17 @@ export function hexCellToPixel(col: number, row: number): { x: number; y: number
 export function generateMap(
   territoryCount: number,
   rng: SeededRandom,
-  gridType: 'square' | 'hex' = 'square'
+  gridType: 'square' | 'hex' = 'square',
+  shape: MapShape = 'rectangle'
 ): { territories: Territory[]; adjacency: Map<number, Set<number>> } {
+  const mask = getShapeMask(shape, GRID_COLS, GRID_ROWS);
+
   // 1. Create grid
   const grid: Cell[][] = [];
   for (let r = 0; r < GRID_ROWS; r++) {
     grid[r] = [];
     for (let c = 0; c < GRID_COLS; c++) {
-      grid[r][c] = { col: c, row: r, territory: -1 };
+      grid[r][c] = { col: c, row: r, territory: mask[r][c] ? -1 : -2 };
     }
   }
 
@@ -66,6 +70,8 @@ export function generateMap(
     const c = rng.nextInt(1, GRID_COLS - 2);
     const r = rng.nextInt(1, GRID_ROWS - 2);
     attempts++;
+
+    if (!mask[r][c]) continue;
 
     const tooClose = seeds.some(
       (s) => Math.abs(s.x - c) + Math.abs(s.y - r) < minDist
@@ -95,6 +101,7 @@ export function generateMap(
       const nc = col + dc;
       const nr = row + dr;
       if (nc < 0 || nc >= GRID_COLS || nr < 0 || nr >= GRID_ROWS) continue;
+      if (!mask[nr][nc]) continue;
       if (grid[nr][nc].territory !== -1) continue;
 
       grid[nr][nc].territory = territory;

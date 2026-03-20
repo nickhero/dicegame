@@ -19,6 +19,9 @@ export interface GameState {
   selectedTerritoryId: number | null;
   lastBattle: BattleResult | null;
   winner: number | null; // player id of winner
+  /** Per-player count of consecutive turns in a desperate state (≤2 territories, no good attacks). */
+  consecutiveDesperate: Map<number, number>;
+  powerUpsEnabled?: boolean;
 }
 
 export function createInitialGameState(
@@ -26,6 +29,11 @@ export function createInitialGameState(
   players: Player[],
   adjacency: Map<number, Set<number>>
 ): GameState {
+  const consecutiveDesperate = new Map<number, number>();
+  for (const p of players) {
+    consecutiveDesperate.set(p.id, 0);
+  }
+
   return {
     territories,
     players,
@@ -36,5 +44,6 @@ export function createInitialGameState(
     selectedTerritoryId: null,
     lastBattle: null,
     winner: null,
+    consecutiveDesperate,
   };
 }

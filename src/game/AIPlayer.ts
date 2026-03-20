@@ -17,8 +17,9 @@ export interface AIMove {
 
 /**
  * Find all possible attacks for the current AI player.
+ * When visibleSet is provided, only attacks against visible territories are considered.
  */
-export function findPossibleMoves(state: GameState): AIMove[] {
+export function findPossibleMoves(state: GameState, visibleSet?: Set<number>): AIMove[] {
   const playerId = state.currentPlayerIndex;
   const moves: AIMove[] = [];
 
@@ -29,6 +30,7 @@ export function findPossibleMoves(state: GameState): AIMove[] {
     for (const neighborId of territory.neighbors) {
       const neighbor = state.territories[neighborId];
       if (neighbor.owner === playerId) continue;
+      if (visibleSet && !visibleSet.has(neighborId)) continue;
 
       moves.push({
         attackerId: territory.id,
@@ -57,9 +59,10 @@ export function selectBestMove(
   state: GameState,
   rng: SeededRandom,
   personalityOverride?: AIPersonality,
+  visibleSet?: Set<number>,
 ): AIMove | null {
   const personality = personalityOverride ?? getPersonality(state);
-  const moves = findPossibleMoves(state);
+  const moves = findPossibleMoves(state, visibleSet);
 
   const validMoves = filterMovesByPersonality(moves, personality);
   if (validMoves.length === 0) return null;
@@ -88,6 +91,7 @@ export function executeAITurn(
   state: GameState,
   rng: SeededRandom,
   personalityOverride?: AIPersonality,
+  visibleSet?: Set<number>,
 ): { attackerId: number; defenderId: number }[] {
   const personality = personalityOverride ?? getPersonality(state);
   const attacks: { attackerId: number; defenderId: number }[] = [];
@@ -95,7 +99,7 @@ export function executeAITurn(
 
   while (safety < 50 && attacks.length < personality.maxAttacksPerTurn) {
     safety++;
-    const move = selectBestMove(state, rng, personality);
+    const move = selectBestMove(state, rng, personality, visibleSet);
     if (!move) break;
 
     if (!isValidAttack(move.attackerId, move.defenderId, state)) break;

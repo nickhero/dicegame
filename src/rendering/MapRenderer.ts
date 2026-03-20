@@ -7,11 +7,13 @@ import { PLAYER_COLORS } from '../config';
 export class MapRenderer {
   private scene: Phaser.Scene;
   private graphics: Phaser.GameObjects.Graphics;
+  private highlightGraphics: Phaser.GameObjects.Graphics;
   private territoryZones: Map<number, Phaser.GameObjects.Zone> = new Map();
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
     this.graphics = scene.add.graphics();
+    this.highlightGraphics = scene.add.graphics().setDepth(50);
   }
 
   /**
@@ -21,7 +23,8 @@ export class MapRenderer {
     state: GameState,
     selectedId: number | null,
     validTargets: number[],
-    attackableTerritories: number[]
+    attackableTerritories: number[],
+    visibleSet?: Set<number>
   ): void {
     this.graphics.clear();
 
@@ -30,8 +33,20 @@ export class MapRenderer {
       this.drawTerritory(territory, state, selectedId, validTargets, attackableTerritories);
     }
 
+    // Draw fog overlay on hidden territories
+    if (visibleSet) {
+      for (const territory of state.territories) {
+        if (!visibleSet.has(territory.id)) {
+          this.drawFogOverlay(territory);
+        }
+      }
+    }
+
     // Draw borders between territories
     this.drawBorders(state);
+
+    // Draw power-up icons
+    this.drawPowerUpIcons(state);
   }
 
   private drawTerritory(
@@ -90,6 +105,24 @@ export class MapRenderer {
     }
     this.graphics.closePath();
     this.graphics.fillPath();
+  }
+
+  private drawFogOverlay(territory: Territory): void {
+    this.graphics.fillStyle(0x000000, 0.55);
+
+    if (territory.gridType === 'hex') {
+      const radius = CELL_SIZE / 2;
+      for (const cell of territory.cells) {
+        const { x: cx, y: cy } = hexCellToPixel(cell.x, cell.y);
+        this.fillHex(cx, cy, radius);
+      }
+    } else {
+      for (const cell of territory.cells) {
+        const x = MAP_OFFSET_X + cell.x * CELL_SIZE;
+        const y = MAP_OFFSET_Y + cell.y * CELL_SIZE;
+        this.graphics.fillRect(x, y, CELL_SIZE, CELL_SIZE);
+      }
+    }
   }
 
   private drawBorders(state: GameState): void {
@@ -181,6 +214,27 @@ export class MapRenderer {
     }
   }
 
+  private static readonly POWER_UP_COLORS: Record<string, number> = {
+    shield: 0x4488ff,
+    charge: 0xff4444,
+    fortify: 0x44cc44,
+    reinforce: 0xffcc00,
+  };
+
+  private drawPowerUpIcons(state: GameState): void {
+    const radius = 6;
+    for (const territory of state.territories) {
+      if (!territory.powerUp) continue;
+      const color = MapRenderer.POWER_UP_COLORS[territory.powerUp] ?? 0xffffff;
+      const cx = territory.center.x;
+      const cy = territory.center.y - CELL_SIZE * 0.6;
+      this.graphics.fillStyle(color, 1.0);
+      this.graphics.fillCircle(cx, cy, radius);
+      this.graphics.lineStyle(1, 0x000000, 0.6);
+      this.graphics.strokeCircle(cx, cy, radius);
+    }
+  }
+
   /**
    * Create interactive zones for each territory.
    */
@@ -203,6 +257,18 @@ export class MapRenderer {
     }
   }
 
+  setZoneHoverCallbacks(
+    onOver: (territoryId: number, pointer: Phaser.Input.Pointer) => void,
+    onOut: (territoryId: number) => void,
+    onMove: (territoryId: number, pointer: Phaser.Input.Pointer) => void
+  ): void {
+    for (const [id, zone] of this.territoryZones) {
+      zone.on('pointerover', (pointer: Phaser.Input.Pointer) => onOver(id, pointer));
+      zone.on('pointerout', () => onOut(id));
+      zone.on('pointermove', (pointer: Phaser.Input.Pointer) => onMove(id, pointer));
+    }
+  }
+
   clearZones(): void {
     for (const zone of this.territoryZones.values()) {
       zone.destroy();
@@ -210,8 +276,47 @@ export class MapRenderer {
     this.territoryZones.clear();
   }
 
+  /**
+   * Flash-highlight a territory with a bright overlay and colored border.
+   */
+  highlightTerritory(territory: Territory, color: number): void {
+    this.highlightGraphics.clear();
+    this.highlightGraphics.fillStyle(0xffffff, 0.3);
+    this.highlightGraphics.lineStyle(3, color, 0.9);
+
+    if (territory.gridType === 'hex') {
+      const radius = CELL_SIZE / 2;
+      for (const cell of territory.cells) {
+        const { x: cx, y: cy } = hexCellToPixel(cell.x, cell.y);
+        this.highlightGraphics.beginPath();
+        for (let i = 0; i < 6; i++) {
+          const angleRad = (Math.PI / 180) * (60 * i - 90);
+          const vx = cx + radius * Math.cos(angleRad);
+          const vy = cy + radius * Math.sin(angleRad);
+          if (i === 0) this.highlightGraphics.moveTo(vx, vy);
+          else this.highlightGraphics.lineTo(vx, vy);
+        }
+        this.highlightGraphics.closePath();
+        this.highlightGraphics.fillPath();
+        this.highlightGraphics.strokePath();
+      }
+    } else {
+      for (const cell of territory.cells) {
+        const x = MAP_OFFSET_X + cell.x * CELL_SIZE;
+        const y = MAP_OFFSET_Y + cell.y * CELL_SIZE;
+        this.highlightGraphics.fillRect(x, y, CELL_SIZE, CELL_SIZE);
+        this.highlightGraphics.strokeRect(x, y, CELL_SIZE, CELL_SIZE);
+      }
+    }
+  }
+
+  clearHighlight(): void {
+    this.highlightGraphics.clear();
+  }
+
   destroy(): void {
     this.graphics.destroy();
+    this.highlightGraphics.destroy();
     this.clearZones();
   }
 }

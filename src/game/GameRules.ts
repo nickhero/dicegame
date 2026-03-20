@@ -4,6 +4,7 @@ import { SeededRandom } from '../utils/random';
 import { resolveBattle } from './DiceBattle';
 import { largestContiguousGroup } from '../utils/graph';
 import { MAX_DICE_PER_TERRITORY, MAX_RESERVE_DICE } from './constants';
+import { spawnPowerUp } from './PowerUps';
 
 /**
  * Check if a territory can attack (has >1 die and has enemy neighbor).
@@ -52,7 +53,7 @@ export function executeAttack(
   const attacker = state.territories[attackerId];
   const defender = state.territories[defenderId];
 
-  const result = resolveBattle(attacker.dice, defender.dice, rng);
+  const result = resolveBattle(attacker.dice, defender.dice, rng, attacker, defender);
 
   if (result.attackerWins) {
     // Attacker takes territory, moves all but 1 die
@@ -118,7 +119,7 @@ export function endTurn(state: GameState, rng: SeededRandom): void {
   distributeDice(state, player.id, bonus, rng);
 
   // Advance to next alive player
-  advancePlayer(state);
+  advancePlayer(state, rng);
 }
 
 /**
@@ -162,8 +163,9 @@ export function distributeDice(
 
 /**
  * Advance to the next alive player.
+ * Spawns a power-up when a new round begins (turn wraps to player 0).
  */
-export function advancePlayer(state: GameState): void {
+export function advancePlayer(state: GameState, rng?: SeededRandom): void {
   const playerCount = state.players.length;
   let next = (state.currentPlayerIndex + 1) % playerCount;
 
@@ -174,11 +176,12 @@ export function advancePlayer(state: GameState): void {
     safety++;
   }
 
-  if (state.currentPlayerIndex === 0 && next !== 0) {
-    // We've started a new round when wrapping back
-  }
-  if (next <= state.currentPlayerIndex) {
+  const isNewRound = next <= state.currentPlayerIndex;
+  if (isNewRound) {
     state.turnNumber++;
+    if (rng) {
+      spawnPowerUp(state, rng);
+    }
   }
 
   state.currentPlayerIndex = next;
@@ -205,4 +208,118 @@ export function getValidTargets(
   return attacker.neighbors
     .filter((nId) => state.territories[nId].owner !== attacker.owner)
     .map((nId) => state.territories[nId]);
+}
+
+/**
+ * Check if any attack from the given player has a positive dice advantage (≥1).
+ */
+function hasPositiveAdvantageAttack(state: GameState, playerId: number): boolean {
+  for (const territory of state.territories) {
+    if (territory.owner !== playerId) continue;
+    if (territory.dice <= 1) continue;
+    for (const nId of territory.neighbors) {
+      const neighbor = state.territories[nId];
+      if (neighbor.owner === playerId) continue;
+      if (territory.dice - neighbor.dice >= 1) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Determine if an AI player should surrender.
+ *
+ * Standard conditions (ALL must be true):
+ *  - Player has ≤ 2 territories
+ *  - No attack with advantage ≥ 1 exists
+ *  - Player has been in this desperate state for ≥ 2 consecutive turns
+ *
+ * Personality overrides:
+ *  - Reckless: never surrenders
+ *  - Aggressive: surrenders when down to 1 territory (lower threshold)
+ */
+export function shouldAISurrender(state: GameState, playerId: number): boolean {
+  const player = state.players[playerId];
+  if (!player.isAlive) return false;
+
+  const personality = player.personality ?? 'balanced';
+  if (personality === 'reckless') return false;
+
+  const territoryCount = state.territories.filter((t) => t.owner === playerId).length;
+  const territoryThreshold = personality === 'aggressive' ? 1 : 2;
+
+  const isDesperate =
+    territoryCount <= territoryThreshold &&
+    !hasPositiveAdvantageAttack(state, playerId);
+
+  // Update consecutive desperate counter
+  if (!state.consecutiveDesperate) {
+    state.consecutiveDesperate = new Map();
+  }
+  const prev = state.consecutiveDesperate.get(playerId) ?? 0;
+
+  if (isDesperate) {
+    const newCount = prev + 1;
+    state.consecutiveDesperate.set(playerId, newCount);
+    return newCount >= 2;
+  } else {
+    state.consecutiveDesperate.set(playerId, 0);
+    return false;
+  }
+}
+
+/**
+ * Distribute a surrendered player's territories to neighbors.
+ *
+ * Each territory goes to the neighboring player with the most adjacent territories.
+ * Ties are broken by player order (lower id wins).
+ * If no neighbor owns adjacent territory, the territory goes to the player
+ * with the most territories overall.
+ * Dice remain as-is.
+ */
+export function distributeSurrenderedTerritories(state: GameState, playerId: number): void {
+  const surrenderedTerritories = state.territories.filter((t) => t.owner === playerId);
+
+  for (const territory of surrenderedTerritories) {
+    // Count adjacent territories per neighboring player
+    const neighborCounts = new Map<number, number>();
+    for (const nId of territory.neighbors) {
+      const neighborOwner = state.territories[nId].owner;
+      if (neighborOwner === playerId) continue;
+      if (!state.players[neighborOwner].isAlive) continue;
+      neighborCounts.set(neighborOwner, (neighborCounts.get(neighborOwner) ?? 0) + 1);
+    }
+
+    let newOwner = -1;
+    if (neighborCounts.size > 0) {
+      // Pick neighbor with most adjacent territories; ties broken by lower id
+      let bestCount = 0;
+      for (const [ownerId, count] of neighborCounts) {
+        if (count > bestCount || (count === bestCount && (newOwner === -1 || ownerId < newOwner))) {
+          bestCount = count;
+          newOwner = ownerId;
+        }
+      }
+    } else {
+      // No alive neighbor — give to player with most territories overall
+      let bestCount = 0;
+      for (const p of state.players) {
+        if (!p.isAlive || p.id === playerId) continue;
+        const count = state.territories.filter((t) => t.owner === p.id).length;
+        if (count > bestCount || (count === bestCount && (newOwner === -1 || p.id < newOwner))) {
+          bestCount = count;
+          newOwner = p.id;
+        }
+      }
+    }
+
+    if (newOwner !== -1) {
+      territory.owner = newOwner;
+    }
+  }
+
+  // Mark player as dead
+  state.players[playerId].isAlive = false;
+
+  checkWinner(state);
 }

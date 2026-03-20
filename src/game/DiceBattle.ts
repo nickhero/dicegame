@@ -1,5 +1,6 @@
 import { SeededRandom } from '../utils/random';
 import { BattleResult } from './GameState';
+import { Territory } from './Territory';
 
 /**
  * Roll n dice (each 1–6) and return individual results.
@@ -19,19 +20,34 @@ export function sumRolls(rolls: number[]): number {
   return rolls.reduce((a, b) => a + b, 0);
 }
 
+const POWER_UP_BONUS = 3;
+
 /**
  * Resolve a battle between attacker and defender.
  * Attacker wins if their total is strictly greater than defender's.
+ * If territory objects are provided, charge/shield power-ups are applied and consumed.
  */
 export function resolveBattle(
   attackerDice: number,
   defenderDice: number,
-  rng: SeededRandom
+  rng: SeededRandom,
+  attackerTerritory?: Territory,
+  defenderTerritory?: Territory
 ): BattleResult {
   const attackerRolls = rollDice(attackerDice, rng);
   const defenderRolls = rollDice(defenderDice, rng);
-  const attackerTotal = sumRolls(attackerRolls);
-  const defenderTotal = sumRolls(defenderRolls);
+  let attackerTotal = sumRolls(attackerRolls);
+  let defenderTotal = sumRolls(defenderRolls);
+
+  if (attackerTerritory?.powerUp === 'charge') {
+    attackerTotal += POWER_UP_BONUS;
+    attackerTerritory.powerUp = undefined;
+  }
+
+  if (defenderTerritory?.powerUp === 'shield') {
+    defenderTotal += POWER_UP_BONUS;
+    defenderTerritory.powerUp = undefined;
+  }
 
   return {
     attackerRolls,
