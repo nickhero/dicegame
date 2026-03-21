@@ -77,31 +77,44 @@ export function useAIPowerUps(state: GameState): string[] {
   // Use all Reinforce power-ups first (free +2 dice)
   for (const t of state.territories) {
     if (t.owner !== playerId || t.powerUp !== 'reinforce') continue;
-    if (t.dice >= MAX_DICE_PER_TERRITORY) continue;
+    if (t.dice >= MAX_DICE_PER_TERRITORY) {
+      // Already at max — discard so it doesn't sit forever
+      t.powerUp = undefined;
+      actions.push(`discarded reinforce on T${t.id} (already at max dice)`);
+      continue;
+    }
     const before = t.dice;
     if (useReinforce(t.id, state)) {
       actions.push(`reinforced T${t.id} (${before}→${t.dice} dice)`);
     }
   }
 
-  // Use Fortify: move dice from strong interior territories to weaker frontier ones
+  // Use Fortify: move dice to adjacent owned territories
   for (const t of state.territories) {
     if (t.owner !== playerId || t.powerUp !== 'fortify') continue;
-    if (t.dice <= 1) continue;
 
-    // Find the weakest adjacent owned frontier territory
-    let bestTarget: { id: number; dice: number } | null = null;
+    // If territory only has 1 die, can't move any — discard the power-up
+    if (t.dice <= 1) {
+      t.powerUp = undefined;
+      actions.push(`discarded fortify on T${t.id} (only 1 die)`);
+      continue;
+    }
+
+    // Find the best adjacent owned territory to send dice to
+    let bestTarget: { id: number; dice: number; priority: number } | null = null;
     for (const nId of t.neighbors) {
       const n = state.territories[nId];
       if (n.owner !== playerId) continue;
-      // Prefer frontier territories (those with enemy neighbors)
+      if (n.dice >= MAX_DICE_PER_TERRITORY) continue;
+
+      // Frontier territories (with enemy neighbors) get higher priority
       const isFrontier = n.neighbors.some(
         (nnId) => state.territories[nnId].owner !== playerId,
       );
-      if (!isFrontier) continue;
-      if (n.dice >= MAX_DICE_PER_TERRITORY) continue;
-      if (!bestTarget || n.dice < bestTarget.dice) {
-        bestTarget = { id: n.id, dice: n.dice };
+      const priority = isFrontier ? 2 : 1;
+
+      if (!bestTarget || priority > bestTarget.priority || (priority === bestTarget.priority && n.dice < bestTarget.dice)) {
+        bestTarget = { id: n.id, dice: n.dice, priority };
       }
     }
 
@@ -109,8 +122,13 @@ export function useAIPowerUps(state: GameState): string[] {
       const movable = Math.min(3, t.dice - 1, MAX_DICE_PER_TERRITORY - bestTarget.dice);
       if (movable > 0 && useFortify(t.id, bestTarget.id, movable, state)) {
         actions.push(`fortified T${bestTarget.id} with ${movable} dice from T${t.id}`);
+        continue;
       }
     }
+
+    // No valid target — discard so it doesn't sit forever
+    t.powerUp = undefined;
+    actions.push(`discarded fortify on T${t.id} (no valid target)`);
   }
 
   return actions;
