@@ -72,6 +72,38 @@ export function formatAction(
         color: 0xffcc00,
       };
     }
+    case 'allianceFormed': {
+      const name1 = playerNames[action.player1] ?? '?';
+      const name2 = playerNames[action.player2] ?? '?';
+      return {
+        text: `🤝 ${name1} and ${name2} formed an alliance (${action.duration} turns)`,
+        color: 0x44ddff,
+      };
+    }
+    case 'allianceBroken': {
+      const breakerName = playerNames[action.breakerId] ?? '?';
+      const otherName = playerNames[action.otherId] ?? '?';
+      return {
+        text: `⚔️ ${breakerName} betrayed ${otherName}!`,
+        color: 0xff6644,
+      };
+    }
+    case 'allianceExpired': {
+      const name1 = playerNames[action.player1] ?? '?';
+      const name2 = playerNames[action.player2] ?? '?';
+      return {
+        text: `📜 Alliance between ${name1} and ${name2} expired`,
+        color: 0x999999,
+      };
+    }
+    case 'allianceProposal': {
+      const from = playerNames[action.fromPlayer] ?? '?';
+      const to = playerNames[action.toPlayer] ?? '?';
+      return {
+        text: `📨 ${from} proposed an alliance with ${to}`,
+        color: 0x44ddff,
+      };
+    }
   }
 }
 

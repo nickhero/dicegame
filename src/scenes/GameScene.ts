@@ -31,6 +31,7 @@ import { EventLog } from '../rendering/EventLog';
 import { TerritoryEffects } from '../rendering/TerritoryEffects';
 import { SoundManager } from '../rendering/SoundManager';
 import { GameStats } from '../game/GameStats';
+import { createAllianceState, tickAlliances, areAllied, wouldBreakAlliance, breakAlliance, formAlliance, AllianceProposal, aiWouldAcceptProposal } from '../game/Alliance';
 import { PLAYER_COLORS, DEFAULT_TERRITORY_COUNT, DEFAULT_PLAYER_COUNT, GAME_WIDTH, GAME_HEIGHT } from '../config';
 
 export class GameScene extends Phaser.Scene {
@@ -63,6 +64,7 @@ export class GameScene extends Phaser.Scene {
   private undoSnapshot: StateSnapshot | null = null;
   private undoUsedThisTurn = false;
   private gameSeed = 0;
+  private lastAllianceTickTurn = 0;
 
   constructor() {
     super('GameScene');
@@ -149,6 +151,9 @@ export class GameScene extends Phaser.Scene {
     if (this.setupConfig.powerUps) {
       this.gameState.powerUpsEnabled = true;
     }
+
+    // Initialize alliance state
+    this.gameState.allianceState = createAllianceState(playerCount);
 
     // Create renderers
     this.mapRenderer = new MapRenderer(this);
@@ -616,6 +621,13 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    // Check if attack would break an alliance — require confirmation
+    if (this.gameState.allianceState && wouldBreakAlliance(this.gameState.allianceState, this.gameState.currentPlayerIndex, this.gameState.territories[territoryId].owner)) {
+      const defenderName = this.gameState.players[this.gameState.territories[territoryId].owner].name;
+      this.showAllianceBreakConfirmation(attackerId, territoryId, defenderName);
+      return;
+    }
+
     // Capture colors before state changes
     const attackerColor = PLAYER_COLORS[this.gameState.currentPlayerIndex];
     const defenderColor = PLAYER_COLORS[this.gameState.territories[territoryId].owner];
@@ -946,6 +958,11 @@ export class GameScene extends Phaser.Scene {
     // Execute end turn logic first to compute bonus
     const { spawn } = endTurn(this.gameState, this.rng);
 
+    // Process alliance tick on new rounds
+    if (this.gameState.allianceState) {
+      this.processAllianceTick();
+    }
+
     this.logSpawn(spawn);
 
     const diceAfter = this.snapshotDice(player.id);
@@ -1118,6 +1135,14 @@ export class GameScene extends Phaser.Scene {
 
         const attackerPlayerId = this.gameState.currentPlayerIndex;
         const defenderPlayerId = this.gameState.territories[move.defenderId].owner;
+
+        // Check and record alliance break before attack
+        if (this.gameState.allianceState && wouldBreakAlliance(this.gameState.allianceState, attackerPlayerId, defenderPlayerId)) {
+          breakAlliance(this.gameState.allianceState, attackerPlayerId, defenderPlayerId);
+          this.eventLog.addEvent(`⚔️ ${currentPlayer.name} betrayed ${this.gameState.players[defenderPlayerId].name}!`, 0xff6644);
+          this.gameRecorder.recordAction({ type: 'allianceBroken', breakerId: attackerPlayerId, otherId: defenderPlayerId });
+        }
+
         const result = executeAttack(move.attackerId, move.defenderId, this.gameState, this.rng);
         this.gameStats.recordAttack(attackerPlayerId, defenderPlayerId, result, this.gameState);
         this.gameRecorder.recordAction({
@@ -1198,6 +1223,11 @@ export class GameScene extends Phaser.Scene {
       const aiDiceBefore = this.snapshotDice(currentPlayer.id);
 
       const { spawn: aiSpawn } = endTurn(this.gameState, this.rng);
+
+      // Process alliance tick on new rounds
+      if (this.gameState.allianceState) {
+        this.processAllianceTick();
+      }
 
       this.logSpawn(aiSpawn);
 
@@ -1371,6 +1401,13 @@ export class GameScene extends Phaser.Scene {
 
         const attackerPlayerId = this.gameState.currentPlayerIndex;
         const defenderPlayerId = this.gameState.territories[move.defenderId].owner;
+
+        // Check alliance break
+        if (this.gameState.allianceState && wouldBreakAlliance(this.gameState.allianceState, attackerPlayerId, defenderPlayerId)) {
+          breakAlliance(this.gameState.allianceState!, attackerPlayerId, defenderPlayerId);
+          this.gameRecorder.recordAction({ type: 'allianceBroken', breakerId: attackerPlayerId, otherId: defenderPlayerId });
+        }
+
         const result = executeAttack(move.attackerId, move.defenderId, this.gameState, this.rng);
         this.gameStats.recordAttack(attackerPlayerId, defenderPlayerId, result, this.gameState);
         this.gameRecorder.recordAction({
@@ -1408,6 +1445,11 @@ export class GameScene extends Phaser.Scene {
       this.gameRecorder.endCurrentTurn();
       this.gameStats.recordTurnStart(this.gameState);
       this.gameRecorder.startTurn(this.gameState.turnNumber, this.gameState.currentPlayerIndex);
+
+      // Process alliance tick on new rounds
+      if (this.gameState.allianceState) {
+        this.processAllianceTickInstant();
+      }
 
       turnCount++;
     }
@@ -1451,6 +1493,187 @@ export class GameScene extends Phaser.Scene {
       playerNames: this.gameState.players.map((p) => p.name),
       recording,
       newAchievements: newAchievements.map(a => ({ id: a.id, name: a.name, emoji: a.emoji, description: a.description })),
+    });
+  }
+
+  private processAllianceTick(): void {
+    if (!this.gameState.allianceState) return;
+    if (this.gameState.turnNumber <= this.lastAllianceTickTurn) return;
+    this.lastAllianceTickTurn = this.gameState.turnNumber;
+
+    const tickResult = tickAlliances(this.gameState.allianceState, this.gameState, this.rng);
+
+    // Log expired alliances
+    for (const a of tickResult.expired) {
+      this.eventLog.addEvent(
+        `📜 Alliance between ${this.gameState.players[a.player1].name} and ${this.gameState.players[a.player2].name} expired`,
+        0x999999
+      );
+      this.gameRecorder.recordAction({ type: 'allianceExpired', player1: a.player1, player2: a.player2 });
+    }
+
+    // Process AI proposals
+    for (const proposal of tickResult.newProposals) {
+      this.gameRecorder.recordAction({ type: 'allianceProposal', fromPlayer: proposal.fromPlayer, toPlayer: proposal.toPlayer });
+
+      if (proposal.toPlayer === 0 && !this.spectatorMode) {
+        // Proposal to human player — show UI
+        this.showAllianceProposal(proposal);
+      } else {
+        // AI-to-AI: auto-resolve
+        const target = this.gameState.players[proposal.toPlayer];
+        if (target && target.isAlive && target.personality) {
+          if (aiWouldAcceptProposal(this.gameState.allianceState!, this.gameState, proposal)) {
+            formAlliance(this.gameState.allianceState!, proposal.fromPlayer, proposal.toPlayer, this.gameState.turnNumber);
+            this.eventLog.addEvent(
+              `🤝 ${this.gameState.players[proposal.fromPlayer].name} and ${target.name} formed an alliance`,
+              0x44ddff
+            );
+            this.gameRecorder.recordAction({ type: 'allianceFormed', player1: proposal.fromPlayer, player2: proposal.toPlayer, duration: 5 });
+          }
+        }
+      }
+    }
+  }
+
+  private processAllianceTickInstant(): void {
+    if (!this.gameState.allianceState) return;
+    if (this.gameState.turnNumber <= this.lastAllianceTickTurn) return;
+    this.lastAllianceTickTurn = this.gameState.turnNumber;
+
+    const tickResult = tickAlliances(this.gameState.allianceState, this.gameState, this.rng);
+
+    for (const a of tickResult.expired) {
+      this.gameRecorder.recordAction({ type: 'allianceExpired', player1: a.player1, player2: a.player2 });
+    }
+
+    for (const proposal of tickResult.newProposals) {
+      this.gameRecorder.recordAction({ type: 'allianceProposal', fromPlayer: proposal.fromPlayer, toPlayer: proposal.toPlayer });
+
+      // Auto-resolve all proposals in instant mode
+      const target = this.gameState.players[proposal.toPlayer];
+      if (target && target.isAlive && target.personality && aiWouldAcceptProposal(this.gameState.allianceState!, this.gameState, proposal)) {
+        formAlliance(this.gameState.allianceState!, proposal.fromPlayer, proposal.toPlayer, this.gameState.turnNumber);
+        this.gameRecorder.recordAction({ type: 'allianceFormed', player1: proposal.fromPlayer, player2: proposal.toPlayer, duration: 5 });
+      }
+    }
+  }
+
+  private showAllianceProposal(proposal: AllianceProposal): void {
+    if (this.isDialogOpen) return;
+    this.isDialogOpen = true;
+
+    const fromPlayer = this.gameState.players[proposal.fromPlayer];
+    const fromColor = '#' + fromPlayer.color.toString(16).padStart(6, '0');
+
+    const container = this.add.container(GAME_WIDTH / 2, GAME_HEIGHT / 2).setDepth(600);
+
+    const bg = this.add.graphics();
+    bg.fillStyle(0x1a1a2e, 0.95);
+    bg.fillRoundedRect(-180, -80, 360, 160, 12);
+    bg.lineStyle(2, 0x44ddff, 1);
+    bg.strokeRoundedRect(-180, -80, 360, 160, 12);
+    container.add(bg);
+
+    const title = this.add.text(0, -55, '🤝 Alliance Proposal', {
+      fontSize: '16px', color: '#44ddff', fontFamily: 'monospace', fontStyle: 'bold',
+    }).setOrigin(0.5);
+    container.add(title);
+
+    const msg = this.add.text(0, -20, `${fromPlayer.name} proposes a\nnon-aggression pact (5 turns)`, {
+      fontSize: '13px', color: fromColor, fontFamily: 'monospace', align: 'center',
+    }).setOrigin(0.5);
+    container.add(msg);
+
+    const acceptBtn = this.add.text(-70, 35, '✓ Accept', {
+      fontSize: '14px', color: '#000', fontFamily: 'monospace', fontStyle: 'bold',
+      backgroundColor: '#44dd88', padding: { x: 12, y: 6 },
+    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+    container.add(acceptBtn);
+
+    const declineBtn = this.add.text(70, 35, '✗ Decline', {
+      fontSize: '14px', color: '#000', fontFamily: 'monospace', fontStyle: 'bold',
+      backgroundColor: '#dd4444', padding: { x: 12, y: 6 },
+    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+    container.add(declineBtn);
+
+    const cleanup = () => {
+      container.destroy();
+      this.isDialogOpen = false;
+    };
+
+    acceptBtn.on('pointerup', () => {
+      formAlliance(this.gameState.allianceState!, proposal.fromPlayer, 0, this.gameState.turnNumber);
+      this.eventLog.addEvent(
+        `🤝 You formed an alliance with ${fromPlayer.name}`,
+        0x44ddff
+      );
+      this.gameRecorder.recordAction({ type: 'allianceFormed', player1: proposal.fromPlayer, player2: 0, duration: 5 });
+      cleanup();
+      this.refreshDisplay();
+    });
+
+    declineBtn.on('pointerup', () => {
+      this.eventLog.addEvent(
+        `You declined ${fromPlayer.name}'s alliance proposal`,
+        0xff6644
+      );
+      cleanup();
+    });
+  }
+
+  private showAllianceBreakConfirmation(attackerId: number, defenderId: number, defenderName: string): void {
+    if (this.isDialogOpen) return;
+    this.isDialogOpen = true;
+
+    const container = this.add.container(GAME_WIDTH / 2, GAME_HEIGHT / 2).setDepth(600);
+
+    const bg = this.add.graphics();
+    bg.fillStyle(0x1a1a2e, 0.95);
+    bg.fillRoundedRect(-180, -80, 360, 160, 12);
+    bg.lineStyle(2, 0xff6644, 1);
+    bg.strokeRoundedRect(-180, -80, 360, 160, 12);
+    container.add(bg);
+
+    const title = this.add.text(0, -55, '⚔️ Break Alliance?', {
+      fontSize: '16px', color: '#ff6644', fontFamily: 'monospace', fontStyle: 'bold',
+    }).setOrigin(0.5);
+    container.add(title);
+
+    const msg = this.add.text(0, -20, `This attack will betray your\nalliance with ${defenderName}!`, {
+      fontSize: '13px', color: '#ffffff', fontFamily: 'monospace', align: 'center',
+    }).setOrigin(0.5);
+    container.add(msg);
+
+    const confirmBtn = this.add.text(-70, 35, '⚔️ Betray', {
+      fontSize: '14px', color: '#000', fontFamily: 'monospace', fontStyle: 'bold',
+      backgroundColor: '#ff6644', padding: { x: 12, y: 6 },
+    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+    container.add(confirmBtn);
+
+    const cancelBtn = this.add.text(70, 35, '← Cancel', {
+      fontSize: '14px', color: '#000', fontFamily: 'monospace', fontStyle: 'bold',
+      backgroundColor: '#888888', padding: { x: 12, y: 6 },
+    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+    container.add(cancelBtn);
+
+    const cleanup = () => {
+      container.destroy();
+      this.isDialogOpen = false;
+    };
+
+    confirmBtn.on('pointerup', () => {
+      const defenderPlayerId = this.gameState.territories[defenderId].owner;
+      breakAlliance(this.gameState.allianceState!, this.gameState.currentPlayerIndex, defenderPlayerId);
+      this.eventLog.addEvent(`⚔️ You betrayed ${defenderName}!`, 0xff6644);
+      this.gameRecorder.recordAction({ type: 'allianceBroken', breakerId: this.gameState.currentPlayerIndex, otherId: defenderPlayerId });
+      cleanup();
+      // Proceed with the attack
+      this.handleDefenderSelection(defenderId);
+    });
+
+    cancelBtn.on('pointerup', () => {
+      cleanup();
     });
   }
 

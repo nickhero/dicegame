@@ -3,6 +3,7 @@ import { Territory } from '../game/Territory';
 import { GameState } from '../game/GameState';
 import { CELL_SIZE, MAP_OFFSET_X, MAP_OFFSET_Y, GRID_COLS, GRID_ROWS, hexCellToPixel } from '../game/MapGenerator';
 import { PLAYER_COLORS } from '../config';
+import { areAllied } from '../game/Alliance';
 
 export class MapRenderer {
   private scene: Phaser.Scene;
@@ -45,6 +46,9 @@ export class MapRenderer {
 
     // Draw borders between territories
     this.drawBorders(state);
+
+    // Draw alliance indicators
+    this.drawAllianceIndicators(state);
 
     // Draw power-up icons
     this.drawPowerUpIcons(state);
@@ -337,6 +341,42 @@ export class MapRenderer {
 
   clearHighlight(): void {
     this.highlightGraphics.clear();
+  }
+
+  private drawAllianceIndicators(state: GameState): void {
+    if (!state.allianceState) return;
+
+    const currentPlayer = state.currentPlayerIndex;
+    const allianceState = state.allianceState;
+
+    for (const territory of state.territories) {
+      if (territory.owner !== currentPlayer && areAllied(allianceState, currentPlayer, territory.owner)) {
+        this.graphics.lineStyle(3, 0x44ddff, 0.7);
+
+        if (territory.gridType === 'hex') {
+          const radius = CELL_SIZE / 2;
+          for (const cell of territory.cells) {
+            const { x: cx, y: cy } = hexCellToPixel(cell.x, cell.y);
+            this.graphics.beginPath();
+            for (let i = 0; i < 6; i++) {
+              const angleRad = (Math.PI / 180) * (60 * i - 90);
+              const vx = cx + radius * Math.cos(angleRad);
+              const vy = cy + radius * Math.sin(angleRad);
+              if (i === 0) this.graphics.moveTo(vx, vy);
+              else this.graphics.lineTo(vx, vy);
+            }
+            this.graphics.closePath();
+            this.graphics.strokePath();
+          }
+        } else {
+          for (const cell of territory.cells) {
+            const x = MAP_OFFSET_X + cell.x * CELL_SIZE;
+            const y = MAP_OFFSET_Y + cell.y * CELL_SIZE;
+            this.graphics.strokeRect(x + 2, y + 2, CELL_SIZE - 4, CELL_SIZE - 4);
+          }
+        }
+      }
+    }
   }
 
   destroy(): void {

@@ -6,6 +6,7 @@ import { useFortify, useReinforce } from '../game/PowerUps';
 import { SPEED_CONFIGS } from '../game/GameConfig';
 import { TurnRecord, GameAction, GameRecording, deserializeAdjacency } from '../game/GameRecorder';
 import { formatAction } from '../game/EventFormatter';
+import { createAllianceState, formAlliance, breakAlliance } from '../game/Alliance';
 import { SeededRandom } from '../utils/random';
 import { MapRenderer } from '../rendering/MapRenderer';
 import { DiceRenderer, createDiceTextures } from '../rendering/DiceRenderer';
@@ -338,6 +339,28 @@ export class ReplayScene extends Phaser.Scene {
         this.refreshDisplay();
         break;
       }
+
+      case 'allianceFormed': {
+        if (!this.gameState.allianceState) {
+          this.gameState.allianceState = createAllianceState(this.gameState.players.length);
+        }
+        formAlliance(this.gameState.allianceState, action.player1, action.player2, this.gameState.turnNumber, action.duration);
+        this.refreshDisplay();
+        break;
+      }
+
+      case 'allianceBroken': {
+        if (this.gameState.allianceState) {
+          breakAlliance(this.gameState.allianceState, action.breakerId, action.otherId);
+        }
+        this.refreshDisplay();
+        break;
+      }
+
+      case 'allianceExpired':
+      case 'allianceProposal':
+        // These are informational — no state changes needed beyond the event log
+        break;
     }
   }
 

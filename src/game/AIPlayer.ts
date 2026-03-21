@@ -11,6 +11,7 @@ import {
 import { useFortify, useReinforce } from './PowerUps';
 import { MAX_DICE_PER_TERRITORY } from './constants';
 import { GameAction } from './GameRecorder';
+import { wouldBreakAlliance, aiWouldBreakAlliance, breakAlliance } from './Alliance';
 
 export interface AIMove {
   attackerId: number;
@@ -44,9 +45,11 @@ export function effectiveAdvantage(
  * Find all possible attacks for the current AI player.
  * When visibleSet is provided, only attacks against visible territories are considered.
  * Advantage accounts for charge/shield power-ups.
+ * Filters out attacks on allied players unless AI personality allows breaking.
  */
 export function findPossibleMoves(state: GameState, visibleSet?: Set<number>): AIMove[] {
   const playerId = state.currentPlayerIndex;
+  const player = state.players[playerId];
   const moves: AIMove[] = [];
 
   for (const territory of state.territories) {
@@ -57,6 +60,14 @@ export function findPossibleMoves(state: GameState, visibleSet?: Set<number>): A
       const neighbor = state.territories[neighborId];
       if (neighbor.owner === playerId) continue;
       if (visibleSet && !visibleSet.has(neighborId)) continue;
+
+      // Skip allied targets unless AI would break the alliance
+      if (state.allianceState && wouldBreakAlliance(state.allianceState, playerId, neighbor.owner)) {
+        const personality = player.personality ?? 'balanced';
+        if (!aiWouldBreakAlliance(state.allianceState, state, playerId, personality)) {
+          continue;
+        }
+      }
 
       moves.push({
         attackerId: territory.id,
@@ -188,16 +199,16 @@ export function selectBestMove(
 /**
  * Execute one AI turn: make attacks until no favorable moves remain
  * or the personality's attack limit is reached.
- * Returns list of battle results for animation.
+ * Returns list of battle results for animation plus any alliance-breaking actions.
  */
 export function executeAITurn(
   state: GameState,
   rng: SeededRandom,
   personalityOverride?: AIPersonality,
   visibleSet?: Set<number>,
-): { attackerId: number; defenderId: number }[] {
+): { attackerId: number; defenderId: number; allianceBroken?: { breakerId: number; otherId: number } }[] {
   const personality = personalityOverride ?? getPersonality(state);
-  const attacks: { attackerId: number; defenderId: number }[] = [];
+  const attacks: { attackerId: number; defenderId: number; allianceBroken?: { breakerId: number; otherId: number } }[] = [];
   let safety = 0;
 
   while (safety < 50 && attacks.length < personality.maxAttacksPerTurn) {
@@ -207,9 +218,19 @@ export function executeAITurn(
 
     if (!isValidAttack(move.attackerId, move.defenderId, state)) break;
 
+    const defenderOwner = state.territories[move.defenderId].owner;
+    let allianceBroken: { breakerId: number; otherId: number } | undefined;
+
+    // Check if this attack breaks an alliance
+    if (state.allianceState && wouldBreakAlliance(state.allianceState, state.currentPlayerIndex, defenderOwner)) {
+      breakAlliance(state.allianceState, state.currentPlayerIndex, defenderOwner);
+      allianceBroken = { breakerId: state.currentPlayerIndex, otherId: defenderOwner };
+    }
+
     attacks.push({
       attackerId: move.attackerId,
       defenderId: move.defenderId,
+      allianceBroken,
     });
 
     executeAttack(move.attackerId, move.defenderId, state, rng);

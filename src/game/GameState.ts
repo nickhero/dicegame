@@ -1,5 +1,6 @@
 import { Territory } from './Territory';
 import { Player } from './Player';
+import { AllianceState } from './Alliance';
 
 export interface BattleResult {
   attackerRolls: number[];
@@ -22,6 +23,7 @@ export interface GameState {
   /** Per-player count of consecutive turns in a desperate state (≤2 territories, no good attacks). */
   consecutiveDesperate: Map<number, number>;
   powerUpsEnabled?: boolean;
+  allianceState?: AllianceState;
 }
 
 export function createInitialGameState(

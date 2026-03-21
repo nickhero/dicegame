@@ -43,7 +43,11 @@ export type GameAction =
   | { type: 'elimination'; playerId: number; eliminatedBy: number }
   | { type: 'fortify'; fromId: number; toId: number; diceCount: number; playerId: number }
   | { type: 'reinforce'; territoryId: number; playerId: number }
-  | { type: 'powerUpSpawn'; territoryId: number; powerUpType: PowerUpType; ownerId: number };
+  | { type: 'powerUpSpawn'; territoryId: number; powerUpType: PowerUpType; ownerId: number }
+  | { type: 'allianceFormed'; player1: number; player2: number; duration: number }
+  | { type: 'allianceBroken'; breakerId: number; otherId: number }
+  | { type: 'allianceExpired'; player1: number; player2: number }
+  | { type: 'allianceProposal'; fromPlayer: number; toPlayer: number };
 
 export interface TurnRecord {
   turnNumber: number;
