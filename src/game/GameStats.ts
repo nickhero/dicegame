@@ -1,4 +1,5 @@
 import { GameState, BattleResult } from './GameState';
+import { GameRecording } from './GameRecorder';
 
 export interface PlayerStats {
   attacksInitiated: number;
@@ -129,5 +130,82 @@ export class GameStats {
       ),
       biggestUpset: this.biggestUpset,
     };
+  }
+
+  /** Compute stats from a completed recording (for match history display) */
+  static computeFromRecording(recording: GameRecording): GameStatsSummary {
+    const stats = new GameStats();
+    // Simulate initial state to get territory counts
+    const initialPlayerCounts = new Map<number, number>();
+    for (const t of recording.initialState.territories) {
+      initialPlayerCounts.set(t.owner, (initialPlayerCounts.get(t.owner) ?? 0) + 1);
+    }
+
+    // Initialize player stats and first territory counts
+    for (const p of recording.initialState.players) {
+      stats.perPlayer.set(p.id, createEmptyPlayerStats());
+      const count = initialPlayerCounts.get(p.id) ?? 0;
+      stats.perPlayer.get(p.id)!.maxTerritories = count;
+      stats.territoriesOverTime.set(p.id, [count]);
+    }
+
+    // Track territory ownership through replay
+    const ownership = recording.initialState.territories.map(t => t.owner);
+
+    for (const turn of recording.turns) {
+      for (const action of turn.actions) {
+        if (action.type === 'attack') {
+          stats.totalBattles++;
+          const attackerStats = stats.perPlayer.get(action.attackerPlayerId)!;
+          const defenderStats = stats.perPlayer.get(action.defenderPlayerId)!;
+
+          attackerStats.attacksInitiated++;
+
+          if (action.result.attackerWins) {
+            attackerStats.attacksWon++;
+            attackerStats.territoriesCaptured++;
+            defenderStats.territoriesLost++;
+            ownership[action.defenderId] = action.attackerPlayerId;
+
+            // Win streak
+            const streak = (stats.currentStreaks.get(action.attackerPlayerId) ?? 0) + 1;
+            stats.currentStreaks.set(action.attackerPlayerId, streak);
+            if (streak > attackerStats.longestWinStreak) {
+              attackerStats.longestWinStreak = streak;
+            }
+
+            // Upset check
+            const atkDice = action.result.attackerRolls.length;
+            const defDice = action.result.defenderRolls.length;
+            const gap = defDice - atkDice;
+            if (gap > stats.biggestUpsetGap) {
+              stats.biggestUpsetGap = gap;
+              stats.biggestUpset = { attackerDice: atkDice, defenderDice: defDice, winnerId: action.attackerPlayerId };
+            }
+          } else {
+            attackerStats.attacksLost++;
+            stats.currentStreaks.set(action.attackerPlayerId, 0);
+          }
+
+          // Update max territories
+          for (const p of recording.initialState.players) {
+            const count = ownership.filter(o => o === p.id).length;
+            const ps = stats.perPlayer.get(p.id)!;
+            if (count > ps.maxTerritories) ps.maxTerritories = count;
+          }
+        }
+
+        if (action.type === 'endTurn') {
+          // Record territory counts at turn boundaries
+          for (const p of recording.initialState.players) {
+            const count = ownership.filter(o => o === p.id).length;
+            stats.territoriesOverTime.get(p.id)!.push(count);
+          }
+        }
+      }
+    }
+
+    stats.turnCount = recording.turnCount;
+    return stats.getSummary();
   }
 }

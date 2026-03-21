@@ -19,6 +19,7 @@ import { getVisibleTerritories } from '../game/FogOfWar';
 import { useFortify, useReinforce, POWER_UPS } from '../game/PowerUps';
 import { estimateWinProbability } from '../game/DiceBattle';
 import { GameRecorder } from '../game/GameRecorder';
+import { saveMatch } from '../game/MatchHistory';
 import { createSnapshot, restoreSnapshot, StateSnapshot } from '../game/GameStateSnapshot';
 import { SeededRandom } from '../utils/random';
 import { MapRenderer } from '../rendering/MapRenderer';
@@ -156,6 +157,14 @@ export class GameScene extends Phaser.Scene {
     this.soundManager = new SoundManager();
     this.gameStats = new GameStats();
     this.gameRecorder = new GameRecorder();
+
+    // Capture initial state for replay
+    this.gameRecorder.setInitialState(
+      this.gameState.territories,
+      this.gameState.players,
+      this.gameState.adjacency,
+      !!this.gameState.powerUpsEnabled,
+    );
 
     // Record initial turn
     this.gameStats.recordTurnStart(this.gameState);
@@ -617,7 +626,7 @@ export class GameScene extends Phaser.Scene {
     this.gameStats.recordAttack(attackerPlayerId, defenderPlayerId, result, this.gameState);
     this.gameRecorder.recordAction({
       type: 'attack', attackerId, defenderId: territoryId,
-      attackerPlayerId, defenderPlayerId,
+      attackerPlayerId, defenderPlayerId, result,
     });
 
     const outcome = result.attackerWins ? 'won' : 'lost';
@@ -904,19 +913,21 @@ export class GameScene extends Phaser.Scene {
     const player = this.gameState.players[playerIdx];
     const diceBefore = this.snapshotDice(player.id);
 
-    // Record end turn
-    this.gameRecorder.recordAction({ type: 'endTurn', playerId: playerIdx });
-    this.gameRecorder.endCurrentTurn();
-
+    // Execute end turn logic first to compute bonus
     endTurn(this.gameState, this.rng);
-    this.gameStats.recordTurnStart(this.gameState);
-    this.gameRecorder.startTurn(this.gameState.turnNumber, this.gameState.currentPlayerIndex);
 
     const diceAfter = this.snapshotDice(player.id);
     let bonus = 0;
     diceAfter.forEach((count, id) => {
       bonus += count - (diceBefore.get(id) ?? 0);
     });
+
+    // Record end turn with computed bonus, then finalize the turn
+    this.gameRecorder.recordAction({ type: 'endTurn', playerId: playerIdx, bonusDice: bonus > 0 ? bonus : 0 });
+    this.gameRecorder.endCurrentTurn();
+
+    this.gameStats.recordTurnStart(this.gameState);
+    this.gameRecorder.startTurn(this.gameState.turnNumber, this.gameState.currentPlayerIndex);
     if (bonus > 0) {
       this.eventLog.addEvent(
         `Player received ${bonus} bonus dice`,
@@ -993,7 +1004,7 @@ export class GameScene extends Phaser.Scene {
         }
 
         // Advance past the now-dead surrendered player
-        this.gameRecorder.recordAction({ type: 'endTurn', playerId: currentPlayer.id });
+        this.gameRecorder.recordAction({ type: 'endTurn', playerId: currentPlayer.id, bonusDice: 0 });
         this.gameRecorder.endCurrentTurn();
         endTurn(this.gameState, this.rng);
         this.gameStats.recordTurnStart(this.gameState);
@@ -1076,7 +1087,7 @@ export class GameScene extends Phaser.Scene {
         this.gameStats.recordAttack(attackerPlayerId, defenderPlayerId, result, this.gameState);
         this.gameRecorder.recordAction({
           type: 'attack', attackerId: move.attackerId, defenderId: move.defenderId,
-          attackerPlayerId, defenderPlayerId,
+          attackerPlayerId, defenderPlayerId, result,
         });
         this.refreshDisplay();
         attackCount++;
@@ -1150,17 +1161,19 @@ export class GameScene extends Phaser.Scene {
       // Track dice before endTurn for AI bonus logging
       const aiDiceBefore = this.snapshotDice(currentPlayer.id);
 
-      this.gameRecorder.recordAction({ type: 'endTurn', playerId: currentPlayer.id });
-      this.gameRecorder.endCurrentTurn();
       endTurn(this.gameState, this.rng);
-      this.gameStats.recordTurnStart(this.gameState);
-      this.gameRecorder.startTurn(this.gameState.turnNumber, this.gameState.currentPlayerIndex);
 
       const aiDiceAfter = this.snapshotDice(currentPlayer.id);
       let aiBonus = 0;
       aiDiceAfter.forEach((count, id) => {
         aiBonus += count - (aiDiceBefore.get(id) ?? 0);
       });
+
+      this.gameRecorder.recordAction({ type: 'endTurn', playerId: currentPlayer.id, bonusDice: aiBonus > 0 ? aiBonus : 0 });
+      this.gameRecorder.endCurrentTurn();
+      this.gameStats.recordTurnStart(this.gameState);
+      this.gameRecorder.startTurn(this.gameState.turnNumber, this.gameState.currentPlayerIndex);
+
       if (aiBonus > 0) {
         this.eventLog.addEvent(
           `${currentPlayer.name} received ${aiBonus} bonus dice`,
@@ -1265,13 +1278,18 @@ export class GameScene extends Phaser.Scene {
       this.soundManager.playDefeat();
     }
     this.gameRecorder.endCurrentTurn();
+    const recording = this.gameRecorder.getRecording(
+      this.gameState.winner,
+      winner?.name ?? 'Unknown',
+    );
+    const stats = this.gameStats.getSummary();
+    saveMatch(recording, stats);
     this.scene.start('GameOverScene', {
       winnerName: winner?.name ?? 'Unknown',
       isVictory: winner?.isHuman ?? false,
-      stats: this.gameStats.getSummary(),
+      stats,
       playerNames: this.gameState.players.map((p) => p.name),
-      recording: this.gameRecorder.getRecording(),
-      setupConfig: this.setupConfig,
+      recording,
     });
   }
 

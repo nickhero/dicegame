@@ -1,16 +1,14 @@
 import Phaser from 'phaser';
 import { GAME_WIDTH, GAME_HEIGHT, PLAYER_COLORS, PLAYER_COLOR_STRINGS } from '../config';
 import { GameStatsSummary, PlayerStats } from '../game/GameStats';
-import { TurnRecord } from '../game/GameRecorder';
-import { GameSetupConfig } from '../game/GameConfig';
+import { GameRecording } from '../game/GameRecorder';
 
 interface GameOverData {
   winnerName: string;
   isVictory: boolean;
   stats?: GameStatsSummary;
   playerNames?: string[];
-  recording?: TurnRecord[];
-  setupConfig?: GameSetupConfig;
+  recording?: GameRecording;
 }
 
 export class GameOverScene extends Phaser.Scene {
@@ -18,8 +16,7 @@ export class GameOverScene extends Phaser.Scene {
   private isVictory: boolean = false;
   private stats: GameStatsSummary | null = null;
   private playerNames: string[] = [];
-  private recording: TurnRecord[] = [];
-  private setupConfig: GameSetupConfig | null = null;
+  private recording: GameRecording | null = null;
 
   constructor() {
     super('GameOverScene');
@@ -30,8 +27,7 @@ export class GameOverScene extends Phaser.Scene {
     this.isVictory = data.isVictory ?? false;
     this.stats = data.stats ?? null;
     this.playerNames = data.playerNames ?? [];
-    this.recording = data.recording ?? [];
-    this.setupConfig = data.setupConfig ?? null;
+    this.recording = data.recording ?? null;
   }
 
   create(): void {
@@ -63,7 +59,7 @@ export class GameOverScene extends Phaser.Scene {
 
     // Buttons — Play Again + Watch Replay
     const btnY = hasStats ? GAME_HEIGHT - 45 : GAME_HEIGHT / 2 + 55;
-    const hasReplay = this.recording.length > 0 && this.setupConfig !== null;
+    const hasReplay = this.recording !== null && this.recording.turns.length > 0;
     const playBtnX = hasReplay ? cx - 110 : cx;
     const replayBtnX = cx + 110;
 
@@ -124,7 +120,6 @@ export class GameOverScene extends Phaser.Scene {
       replayZone.on('pointerdown', () => {
         this.scene.start('ReplayScene', {
           recording: this.recording,
-          setupConfig: this.setupConfig,
         });
       });
     }

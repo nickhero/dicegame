@@ -1,28 +1,18 @@
 import Phaser from 'phaser';
 import { GameState, createInitialGameState } from '../game/GameState';
 import { createPlayer } from '../game/Player';
-import { generateMap, assignTerritories } from '../game/MapGenerator';
 import { executeAttack, endTurn, distributeSurrenderedTerritories } from '../game/GameRules';
-import { getRandomPersonality, PERSONALITIES } from '../game/AIPersonality';
-import { SPEED_CONFIGS, GameSetupConfig, DEFAULT_SETUP } from '../game/GameConfig';
-import { TurnRecord, GameAction } from '../game/GameRecorder';
+import { useFortify, useReinforce } from '../game/PowerUps';
+import { SPEED_CONFIGS } from '../game/GameConfig';
+import { TurnRecord, GameAction, GameRecording, deserializeAdjacency } from '../game/GameRecorder';
+import { formatAction } from '../game/EventFormatter';
 import { SeededRandom } from '../utils/random';
 import { MapRenderer } from '../rendering/MapRenderer';
 import { DiceRenderer, createDiceTextures } from '../rendering/DiceRenderer';
 import { TerritoryEffects } from '../rendering/TerritoryEffects';
 import { EventLog } from '../rendering/EventLog';
-import {
-  PLAYER_COLORS,
-  DEFAULT_TERRITORY_COUNT,
-  DEFAULT_PLAYER_COUNT,
-  GAME_WIDTH,
-  GAME_HEIGHT,
-} from '../config';
-
-interface ReplayData {
-  recording: TurnRecord[];
-  setupConfig: GameSetupConfig;
-}
+import { PLAYER_COLORS, GAME_WIDTH, GAME_HEIGHT } from '../config';
+import { Territory } from '../game/Territory';
 
 export class ReplayScene extends Phaser.Scene {
   private gameState!: GameState;
@@ -32,8 +22,8 @@ export class ReplayScene extends Phaser.Scene {
   private territoryEffects!: TerritoryEffects;
   private eventLog!: EventLog;
 
-  private recording: TurnRecord[] = [];
-  private setupConfig!: GameSetupConfig;
+  private recording!: GameRecording;
+  private turns: TurnRecord[] = [];
 
   private turnIndex = 0;
   private actionIndex = 0;
@@ -48,9 +38,9 @@ export class ReplayScene extends Phaser.Scene {
     super('ReplayScene');
   }
 
-  init(data: ReplayData): void {
-    this.recording = data.recording ?? [];
-    this.setupConfig = data.setupConfig ?? { ...DEFAULT_SETUP };
+  init(data: { recording: GameRecording }): void {
+    this.recording = data.recording;
+    this.turns = this.recording.turns;
     this.turnIndex = 0;
     this.actionIndex = 0;
     this.paused = false;
@@ -59,28 +49,32 @@ export class ReplayScene extends Phaser.Scene {
   }
 
   create(): void {
-    // Recreate the game from the same seed
-    const seed = this.setupConfig.mapSeed;
-    const numSeed = typeof seed === 'number' ? seed : hashString(String(seed));
-    this.rng = new SeededRandom(numSeed);
+    createDiceTextures(this);
 
-    const numTerritories = this.setupConfig.territoryCount ?? DEFAULT_TERRITORY_COUNT;
-    const numPlayers = this.setupConfig.playerCount ?? DEFAULT_PLAYER_COUNT;
-    const { territories, adjacency } = generateMap(numTerritories, this.rng);
-    assignTerritories(territories, numPlayers, this.rng);
+    // Restore game state from serialized initial snapshot
+    const initial = this.recording.initialState;
+    const adjacency = deserializeAdjacency(initial.adjacency);
 
-    // Create players (all AI for replay)
-    const players = [];
-    for (let i = 0; i < numPlayers; i++) {
-      const personality = getRandomPersonality(this.rng);
-      const p = createPlayer(i, `Player ${i + 1}`, false, PLAYER_COLORS[i], personality);
-      players.push(p);
-    }
+    const territories: Territory[] = initial.territories.map(st => ({
+      id: st.id,
+      cells: st.cells.map(c => ({ x: c.x, y: c.y })),
+      center: { x: st.center.x, y: st.center.y },
+      neighbors: [...st.neighbors],
+      owner: st.owner,
+      dice: st.dice,
+      gridType: st.gridType,
+      powerUp: st.powerUp,
+    }));
+
+    const players = initial.players.map(sp =>
+      createPlayer(sp.id, sp.name, sp.isHuman, sp.color, sp.personality)
+    );
 
     this.gameState = createInitialGameState(territories, players, adjacency);
-    if (this.setupConfig.powerUps) {
-      this.gameState.powerUpsEnabled = true;
-    }
+    this.gameState.powerUpsEnabled = initial.powerUpsEnabled;
+
+    // RNG for replay (executeAttack needs it for dice rolls — same seed reproduces results)
+    this.rng = new SeededRandom(1);
 
     // Create renderers
     this.mapRenderer = new MapRenderer(this);
@@ -136,7 +130,7 @@ export class ReplayScene extends Phaser.Scene {
     });
 
     this.refreshDisplay();
-    this.statusText.setText(`Turn 1 — ready to replay ${this.recording.length} turns`);
+    this.statusText.setText(`Turn 1 — ready to replay ${this.turns.length} turns`);
 
     // Start replay
     this.time.delayedCall(500, () => this.playNextAction());
@@ -159,13 +153,11 @@ export class ReplayScene extends Phaser.Scene {
     if (key === '2') { this.speed = 'fast'; this.updateControlsText(); return; }
     if (key === '3') { this.speed = 'instant'; this.updateControlsText(); return; }
 
-    // N — step one action (when paused)
     if (key === 'N' && this.paused) {
       this.stepOneAction();
       return;
     }
 
-    // Escape — exit replay
     if (key === 'ESCAPE') {
       this.scene.start('MenuScene');
       return;
@@ -185,21 +177,20 @@ export class ReplayScene extends Phaser.Scene {
 
   private async playNextAction(): Promise<void> {
     if (this.paused || this.isProcessing) return;
-    if (this.turnIndex >= this.recording.length) {
+    if (this.turnIndex >= this.turns.length) {
       this.statusText.setText('Replay complete!');
       return;
     }
 
     this.isProcessing = true;
 
-    const turn = this.recording[this.turnIndex];
+    const turn = this.turns[this.turnIndex];
     if (this.actionIndex >= turn.actions.length) {
-      // Move to next turn
       this.turnIndex++;
       this.actionIndex = 0;
       this.isProcessing = false;
 
-      if (this.turnIndex >= this.recording.length) {
+      if (this.turnIndex >= this.turns.length) {
         this.statusText.setText('Replay complete!');
         return;
       }
@@ -221,25 +212,32 @@ export class ReplayScene extends Phaser.Scene {
   }
 
   private stepOneAction(): void {
-    if (this.turnIndex >= this.recording.length) return;
+    if (this.turnIndex >= this.turns.length) return;
 
-    const turn = this.recording[this.turnIndex];
+    const turn = this.turns[this.turnIndex];
     if (this.actionIndex >= turn.actions.length) {
       this.turnIndex++;
       this.actionIndex = 0;
-      if (this.turnIndex >= this.recording.length) {
+      if (this.turnIndex >= this.turns.length) {
         this.statusText.setText('Replay complete!');
         return;
       }
     }
 
-    const action = this.recording[this.turnIndex].actions[this.actionIndex];
+    const action = this.turns[this.turnIndex].actions[this.actionIndex];
     this.executeAction(action);
     this.actionIndex++;
   }
 
   private async executeAction(action: GameAction): Promise<void> {
-    const playerName = this.gameState.players[this.gameState.currentPlayerIndex]?.name ?? '?';
+    const playerNames = this.gameState.players.map(p => p.name);
+    const playerColors = this.gameState.players.map(p => p.color);
+
+    // Use EventFormatter for log entries
+    const formatted = formatAction(action, playerNames, playerColors);
+    if (formatted) {
+      this.eventLog.addEvent(formatted.text, formatted.color);
+    }
 
     switch (action.type) {
       case 'attack': {
@@ -254,21 +252,28 @@ export class ReplayScene extends Phaser.Scene {
           await this.delay(this.getDelay(200));
         }
 
-        const result = executeAttack(action.attackerId, action.defenderId, this.gameState, this.rng);
-        const outcome = result.attackerWins ? 'won' : 'lost';
-        this.eventLog.addEvent(
-          `${playerName} T${action.attackerId} → T${action.defenderId} (${outcome})`,
-          PLAYER_COLORS[this.gameState.currentPlayerIndex],
-        );
-
-        // Check for elimination
-        for (const p of this.gameState.players) {
-          if (!p.isAlive) {
-            const owned = this.gameState.territories.filter(t => t.owner === p.id);
-            if (owned.length === 0 && !p.isAlive) {
-              // Already handled by executeAttack setting isAlive
+        // Apply the recorded result directly instead of re-rolling
+        const attacker = this.gameState.territories[action.attackerId];
+        const defender = this.gameState.territories[action.defenderId];
+        if (action.result.attackerWins) {
+          defender.owner = attacker.owner;
+          defender.dice = attacker.dice - 1;
+          attacker.dice = 1;
+          // Check for elimination
+          for (const p of this.gameState.players) {
+            const owned = this.gameState.territories.filter(t => t.owner === p.id).length;
+            if (owned === 0 && p.isAlive) {
+              p.isAlive = false;
             }
           }
+          // Check for game over
+          const alive = this.gameState.players.filter(p => p.isAlive);
+          if (alive.length === 1) {
+            this.gameState.phase = 'gameOver';
+            this.gameState.winner = alive[0].id;
+          }
+        } else {
+          attacker.dice = 1;
         }
 
         if (this.speed !== 'instant') {
@@ -276,9 +281,10 @@ export class ReplayScene extends Phaser.Scene {
         }
 
         this.refreshDisplay();
-        this.statusText.setText(`Turn ${this.turnIndex + 1} — ${playerName} attacks`);
+        const name = playerNames[action.attackerPlayerId] ?? '?';
+        this.statusText.setText(`Turn ${this.turnIndex + 1} — ${name} attacks`);
 
-        if ((this.gameState.phase as string) === 'gameOver') {
+        if (this.gameState.phase === 'gameOver') {
           this.statusText.setText('Replay complete — game over!');
         }
         break;
@@ -294,21 +300,25 @@ export class ReplayScene extends Phaser.Scene {
       }
 
       case 'surrender': {
-        const surrenderPlayer = this.gameState.players.find(p => p.id === action.playerId);
-        if (surrenderPlayer) {
-          this.eventLog.addEvent(`${surrenderPlayer.name} surrendered!`, 0xff4444);
-          distributeSurrenderedTerritories(this.gameState, action.playerId);
-          this.refreshDisplay();
-        }
+        distributeSurrenderedTerritories(this.gameState, action.playerId);
+        this.refreshDisplay();
         break;
       }
 
-      case 'powerUp':
-      case 'fortify':
-      case 'reinforce':
-        // These affect game state but we don't have full logic here — skip gracefully
-        this.eventLog.addEvent(`${playerName} used power-up`, 0x44aaff);
+      case 'elimination':
         break;
+
+      case 'fortify': {
+        useFortify(action.fromId, action.toId, action.diceCount, this.gameState);
+        this.refreshDisplay();
+        break;
+      }
+
+      case 'reinforce': {
+        useReinforce(action.territoryId, this.gameState);
+        this.refreshDisplay();
+        break;
+      }
     }
   }
 
@@ -321,13 +331,4 @@ export class ReplayScene extends Phaser.Scene {
     if (ms <= 0) return Promise.resolve();
     return new Promise((resolve) => this.time.delayedCall(ms, resolve));
   }
-}
-
-function hashString(str: string): number {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    const ch = str.charCodeAt(i);
-    hash = ((hash << 5) - hash + ch) | 0;
-  }
-  return Math.abs(hash) || 1;
 }
