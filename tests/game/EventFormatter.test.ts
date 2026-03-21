@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { formatAction, FormattedEvent } from '../../src/game/EventFormatter';
-import { GameAction } from '../../src/game/GameRecorder';
+import { formatAction, FormattedEvent, generateTextLog } from '../../src/game/EventFormatter';
+import { GameAction, GameRecording } from '../../src/game/GameRecorder';
 import { BattleResult } from '../../src/game/GameState';
 
 const playerNames = ['Alice', 'Bob'];
@@ -99,5 +99,72 @@ describe('formatAction', () => {
     const action: GameAction = { type: 'surrender', playerId: 99 };
     const event = formatAction(action, playerNames, playerColors)!;
     expect(event.text).toContain('?');
+  });
+});
+
+describe('generateTextLog', () => {
+  function makeRecording(actions: GameAction[]): GameRecording {
+    return {
+      initialState: {
+        territories: [],
+        players: [
+          { id: 0, name: 'Alice', isHuman: true, color: 0x4a90d9, personality: null },
+          { id: 1, name: 'Bot-1', isHuman: false, color: 0xd94a4a, personality: 'aggressive' },
+        ],
+        adjacency: [],
+        powerUpsEnabled: true,
+      },
+      turns: [
+        { turnNumber: 1, playerId: 0, actions },
+      ],
+      date: '2026-03-21T12:00:00Z',
+      winnerId: 0,
+      winnerName: 'Alice',
+      turnCount: 1,
+    };
+  }
+
+  it('includes header with game metadata', () => {
+    const log = generateTextLog(makeRecording([]));
+    expect(log).toContain('=== DiceWars Game Log ===');
+    expect(log).toContain('Players: Alice, Bot-1');
+    expect(log).toContain('Winner: Alice');
+    expect(log).toContain('Turns: 1');
+  });
+
+  it('includes attack actions', () => {
+    const log = generateTextLog(makeRecording([
+      { type: 'attack', attackerId: 0, defenderId: 1, attackerPlayerId: 0, defenderPlayerId: 1, result: makeResult(true) },
+    ]));
+    expect(log).toContain('Alice attacked T0 → T1');
+    expect(log).toContain('won');
+  });
+
+  it('includes power-up actions', () => {
+    const log = generateTextLog(makeRecording([
+      { type: 'reinforce', territoryId: 3, playerId: 1 },
+      { type: 'fortify', fromId: 2, toId: 5, diceCount: 2, playerId: 1 },
+    ]));
+    expect(log).toContain('Bot-1 used Reinforce on T3');
+    expect(log).toContain('Bot-1 fortified T5 with 2 dice from T2');
+  });
+
+  it('includes eliminations and surrenders', () => {
+    const log = generateTextLog(makeRecording([
+      { type: 'surrender', playerId: 1 },
+      { type: 'elimination', playerId: 1, eliminatedBy: 0 },
+    ]));
+    expect(log).toContain('Bot-1 surrendered!');
+    expect(log).toContain('Bot-1 was eliminated!');
+  });
+
+  it('includes turn headers', () => {
+    const log = generateTextLog(makeRecording([]));
+    expect(log).toContain('--- Turn 1 (Alice) ---');
+  });
+
+  it('ends with footer', () => {
+    const log = generateTextLog(makeRecording([]));
+    expect(log).toContain('=== End of Log');
   });
 });

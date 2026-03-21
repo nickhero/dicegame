@@ -10,11 +10,17 @@ import {
 } from './AIPersonality';
 import { useFortify, useReinforce } from './PowerUps';
 import { MAX_DICE_PER_TERRITORY } from './constants';
+import { GameAction } from './GameRecorder';
 
 export interface AIMove {
   attackerId: number;
   defenderId: number;
   advantage: number; // effective advantage accounting for power-ups
+}
+
+export interface PowerUpResult {
+  description: string;
+  action: GameAction | null; // null for discards
 }
 
 const POWER_UP_BONUS = 3;
@@ -70,9 +76,9 @@ export function findPossibleMoves(state: GameState, visibleSet?: Set<number>): A
  * Use any available manual power-ups (Reinforce, Fortify) on the AI's territories.
  * Returns descriptions of actions taken for logging.
  */
-export function useAIPowerUps(state: GameState): string[] {
+export function useAIPowerUps(state: GameState): PowerUpResult[] {
   const playerId = state.currentPlayerIndex;
-  const actions: string[] = [];
+  const results: PowerUpResult[] = [];
 
   // Use all Reinforce power-ups first (free +2 dice)
   for (const t of state.territories) {
@@ -80,12 +86,15 @@ export function useAIPowerUps(state: GameState): string[] {
     if (t.dice >= MAX_DICE_PER_TERRITORY) {
       // Already at max — discard so it doesn't sit forever
       t.powerUp = undefined;
-      actions.push(`discarded reinforce on T${t.id} (already at max dice)`);
+      results.push({ description: `discarded reinforce on T${t.id} (already at max dice)`, action: null });
       continue;
     }
     const before = t.dice;
     if (useReinforce(t.id, state)) {
-      actions.push(`reinforced T${t.id} (${before}→${t.dice} dice)`);
+      results.push({
+        description: `reinforced T${t.id} (${before}→${t.dice} dice)`,
+        action: { type: 'reinforce', territoryId: t.id, playerId },
+      });
     }
   }
 
@@ -96,7 +105,7 @@ export function useAIPowerUps(state: GameState): string[] {
     // If territory only has 1 die, can't move any — discard the power-up
     if (t.dice <= 1) {
       t.powerUp = undefined;
-      actions.push(`discarded fortify on T${t.id} (only 1 die)`);
+      results.push({ description: `discarded fortify on T${t.id} (only 1 die)`, action: null });
       continue;
     }
 
@@ -121,17 +130,20 @@ export function useAIPowerUps(state: GameState): string[] {
     if (bestTarget) {
       const movable = Math.min(3, t.dice - 1, MAX_DICE_PER_TERRITORY - bestTarget.dice);
       if (movable > 0 && useFortify(t.id, bestTarget.id, movable, state)) {
-        actions.push(`fortified T${bestTarget.id} with ${movable} dice from T${t.id}`);
+        results.push({
+          description: `fortified T${bestTarget.id} with ${movable} dice from T${t.id}`,
+          action: { type: 'fortify', fromId: t.id, toId: bestTarget.id, diceCount: movable, playerId },
+        });
         continue;
       }
     }
 
     // No valid target — discard so it doesn't sit forever
     t.powerUp = undefined;
-    actions.push(`discarded fortify on T${t.id} (no valid target)`);
+    results.push({ description: `discarded fortify on T${t.id} (no valid target)`, action: null });
   }
 
-  return actions;
+  return results;
 }
 
 /**

@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { GAME_WIDTH, GAME_HEIGHT, PLAYER_COLORS, PLAYER_COLOR_STRINGS } from '../config';
 import { GameStatsSummary, PlayerStats } from '../game/GameStats';
 import { GameRecording } from '../game/GameRecorder';
+import { generateTextLog } from '../game/EventFormatter';
 
 interface GameOverData {
   winnerName: string;
@@ -57,36 +58,44 @@ export class GameOverScene extends Phaser.Scene {
       this.drawStatsPanel(cx, titleY + 80);
     }
 
-    // Buttons — Play Again + Watch Replay
+    // Buttons — Play Again + Watch Replay + Export Log
     const btnY = hasStats ? GAME_HEIGHT - 45 : GAME_HEIGHT / 2 + 55;
     const hasReplay = this.recording !== null && this.recording.turns.length > 0;
-    const playBtnX = hasReplay ? cx - 110 : cx;
-    const replayBtnX = cx + 110;
+
+    // Determine button layout
+    const buttonCount = hasReplay ? 3 : 1;
+    const btnSpacing = 155;
+    const totalWidth = (buttonCount - 1) * btnSpacing;
+    const startX = cx - totalWidth / 2;
+
+    const playBtnX = startX;
+    const replayBtnX = startX + btnSpacing;
+    const exportBtnX = startX + btnSpacing * 2;
 
     // Play Again button
     const btnBg = this.add.graphics();
     btnBg.fillStyle(0x4a90d9, 1);
-    btnBg.fillRoundedRect(playBtnX - 100, btnY - 25, 200, 50, 8);
+    btnBg.fillRoundedRect(playBtnX - 70, btnY - 25, 140, 50, 8);
 
     this.add.text(playBtnX, btnY, 'PLAY AGAIN', {
-      fontSize: '20px',
+      fontSize: '16px',
       color: '#ffffff',
       fontFamily: 'monospace',
       fontStyle: 'bold',
     }).setOrigin(0.5);
 
-    const hitZone = this.add.zone(playBtnX, btnY, 200, 50).setInteractive({ useHandCursor: true });
+    const hitZone = this.add.zone(playBtnX, btnY, 140, 50).setInteractive({ useHandCursor: true });
 
     hitZone.on('pointerover', () => {
       btnBg.clear();
       btnBg.fillStyle(0x6ab0f9, 1);
-      btnBg.fillRoundedRect(playBtnX - 100, btnY - 25, 200, 50, 8);
+      btnBg.fillRoundedRect(playBtnX - 70, btnY - 25, 140, 50, 8);
     });
 
     hitZone.on('pointerout', () => {
       btnBg.clear();
       btnBg.fillStyle(0x4a90d9, 1);
-      btnBg.fillRoundedRect(playBtnX - 100, btnY - 25, 200, 50, 8);
+      btnBg.fillRoundedRect(playBtnX - 70, btnY - 25, 140, 50, 8);
     });
 
     hitZone.on('pointerdown', () => {
@@ -97,30 +106,57 @@ export class GameOverScene extends Phaser.Scene {
     if (hasReplay) {
       const replayBg = this.add.graphics();
       replayBg.fillStyle(0x905ad9, 1);
-      replayBg.fillRoundedRect(replayBtnX - 100, btnY - 25, 200, 50, 8);
+      replayBg.fillRoundedRect(replayBtnX - 70, btnY - 25, 140, 50, 8);
 
-      this.add.text(replayBtnX, btnY, '▶ WATCH REPLAY', {
-        fontSize: '18px',
+      this.add.text(replayBtnX, btnY, '▶ REPLAY', {
+        fontSize: '16px',
         color: '#ffffff',
         fontFamily: 'monospace',
         fontStyle: 'bold',
       }).setOrigin(0.5);
 
-      const replayZone = this.add.zone(replayBtnX, btnY, 200, 50).setInteractive({ useHandCursor: true });
+      const replayZone = this.add.zone(replayBtnX, btnY, 140, 50).setInteractive({ useHandCursor: true });
       replayZone.on('pointerover', () => {
         replayBg.clear();
         replayBg.fillStyle(0xb07af9, 1);
-        replayBg.fillRoundedRect(replayBtnX - 100, btnY - 25, 200, 50, 8);
+        replayBg.fillRoundedRect(replayBtnX - 70, btnY - 25, 140, 50, 8);
       });
       replayZone.on('pointerout', () => {
         replayBg.clear();
         replayBg.fillStyle(0x905ad9, 1);
-        replayBg.fillRoundedRect(replayBtnX - 100, btnY - 25, 200, 50, 8);
+        replayBg.fillRoundedRect(replayBtnX - 70, btnY - 25, 140, 50, 8);
       });
       replayZone.on('pointerdown', () => {
         this.scene.start('ReplayScene', {
           recording: this.recording,
         });
+      });
+
+      // Export Log button
+      const exportBg = this.add.graphics();
+      exportBg.fillStyle(0x4a9060, 1);
+      exportBg.fillRoundedRect(exportBtnX - 70, btnY - 25, 140, 50, 8);
+
+      this.add.text(exportBtnX, btnY, '📋 EXPORT LOG', {
+        fontSize: '16px',
+        color: '#ffffff',
+        fontFamily: 'monospace',
+        fontStyle: 'bold',
+      }).setOrigin(0.5);
+
+      const exportZone = this.add.zone(exportBtnX, btnY, 140, 50).setInteractive({ useHandCursor: true });
+      exportZone.on('pointerover', () => {
+        exportBg.clear();
+        exportBg.fillStyle(0x6ab080, 1);
+        exportBg.fillRoundedRect(exportBtnX - 70, btnY - 25, 140, 50, 8);
+      });
+      exportZone.on('pointerout', () => {
+        exportBg.clear();
+        exportBg.fillStyle(0x4a9060, 1);
+        exportBg.fillRoundedRect(exportBtnX - 70, btnY - 25, 140, 50, 8);
+      });
+      exportZone.on('pointerdown', () => {
+        this.exportLog();
       });
     }
   }
@@ -274,5 +310,17 @@ export class GameOverScene extends Phaser.Scene {
       }
       g.strokePath();
     });
+  }
+
+  private exportLog(): void {
+    if (!this.recording) return;
+    const textLog = generateTextLog(this.recording);
+    const blob = new Blob([textLog], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `dicewars-log-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 }

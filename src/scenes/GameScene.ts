@@ -657,6 +657,7 @@ export class GameScene extends Phaser.Scene {
         const hasTerritories = this.gameState.territories.some((t) => t.owner === p.id);
         if (!hasTerritories) {
           this.eventLog.addEvent(`${p.name} was eliminated!`, 0xff4444);
+          this.gameRecorder.recordAction({ type: 'elimination', playerId: p.id, eliminatedBy: this.gameState.currentPlayerIndex });
           eliminatedPlayers.push(p.id);
         }
       }
@@ -1044,11 +1045,14 @@ export class GameScene extends Phaser.Scene {
 
       // Use manual power-ups before attacking
       if (this.gameState.powerUpsEnabled) {
-        const powerUpActions = useAIPowerUps(this.gameState);
-        for (const action of powerUpActions) {
-          this.eventLog.addEvent(`${currentPlayer.name} ${action}`, currentPlayer.color);
+        const powerUpResults = useAIPowerUps(this.gameState);
+        for (const result of powerUpResults) {
+          this.eventLog.addEvent(`${currentPlayer.name} ${result.description}`, currentPlayer.color);
+          if (result.action) {
+            this.gameRecorder.recordAction(result.action);
+          }
         }
-        if (powerUpActions.length > 0) {
+        if (powerUpResults.length > 0) {
           this.refreshDisplay();
           await this.delay(this.getDelay(400));
         }
@@ -1161,6 +1165,7 @@ export class GameScene extends Phaser.Scene {
       for (const p of this.gameState.players) {
         if (aliveBeforeAI.has(p.id) && !p.isAlive) {
           this.eventLog.addEvent(`${p.name} was eliminated!`, 0xff4444);
+          this.gameRecorder.recordAction({ type: 'elimination', playerId: p.id, eliminatedBy: currentPlayer.id });
           this.soundManager.playElimination();
         }
       }
@@ -1316,7 +1321,12 @@ export class GameScene extends Phaser.Scene {
 
       // Use AI power-ups
       if (this.gameState.powerUpsEnabled) {
-        useAIPowerUps(this.gameState);
+        const powerUpResults = useAIPowerUps(this.gameState);
+        for (const result of powerUpResults) {
+          if (result.action) {
+            this.gameRecorder.recordAction(result.action);
+          }
+        }
       }
 
       // Execute attacks

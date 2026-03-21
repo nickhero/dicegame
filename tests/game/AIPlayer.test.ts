@@ -178,13 +178,15 @@ describe('findPossibleMoves with power-ups', () => {
 });
 
 describe('useAIPowerUps', () => {
-  it('uses reinforce power-ups', () => {
+  it('uses reinforce power-ups and returns action', () => {
     const state = createAITestState();
     state.powerUpsEnabled = true;
     state.territories[1].powerUp = 'reinforce';
     const before = state.territories[1].dice;
-    const actions = useAIPowerUps(state);
-    expect(actions.length).toBe(1);
+    const results = useAIPowerUps(state);
+    expect(results.length).toBe(1);
+    expect(results[0].action).toEqual({ type: 'reinforce', territoryId: 1, playerId: 1 });
+    expect(results[0].description).toContain('reinforced');
     expect(state.territories[1].dice).toBe(before + 2);
     expect(state.territories[1].powerUp).toBeUndefined();
   });
@@ -195,11 +197,26 @@ describe('useAIPowerUps', () => {
     state.territories[3].powerUp = 'fortify';
     state.territories[3].dice = 6;
     state.territories[1].dice = 2;
-    const actions = useAIPowerUps(state);
-    expect(actions.length).toBe(1);
+    const results = useAIPowerUps(state);
+    expect(results.length).toBe(1);
+    expect(results[0].action).not.toBeNull();
+    expect(results[0].action!.type).toBe('fortify');
+    expect(results[0].description).toContain('fortified');
     expect(state.territories[3].powerUp).toBeUndefined();
     // Dice moved from T3 to T1 (frontier territory)
     expect(state.territories[3].dice).toBeLessThan(6);
     expect(state.territories[1].dice).toBeGreaterThan(2);
+  });
+
+  it('discards unusable power-ups with null action', () => {
+    const state = createAITestState();
+    state.powerUpsEnabled = true;
+    state.territories[1].powerUp = 'reinforce';
+    state.territories[1].dice = 8; // max
+    const results = useAIPowerUps(state);
+    expect(results.length).toBe(1);
+    expect(results[0].action).toBeNull();
+    expect(results[0].description).toContain('discarded');
+    expect(state.territories[1].powerUp).toBeUndefined();
   });
 });

@@ -1,6 +1,6 @@
 // Generates human-readable event text from game actions — pure TypeScript, no Phaser imports.
 
-import { GameAction } from './GameRecorder';
+import { GameAction, GameRecording } from './GameRecorder';
 
 export interface FormattedEvent {
   text: string;
@@ -66,4 +66,36 @@ export function formatAction(
       };
     }
   }
+}
+
+/**
+ * Generate a full text log from a game recording.
+ */
+export function generateTextLog(recording: GameRecording): string {
+  const playerNames = recording.initialState.players.map((p) => p.name);
+  const playerColors = recording.initialState.players.map((p) => p.color);
+  const lines: string[] = [];
+
+  lines.push('=== DiceWars Game Log ===');
+  lines.push(`Date: ${recording.date}`);
+  lines.push(`Players: ${playerNames.join(', ')}`);
+  lines.push(`Winner: ${recording.winnerName}`);
+  lines.push(`Turns: ${recording.turnCount}`);
+  lines.push('');
+
+  for (const turn of recording.turns) {
+    const turnPlayerName = playerNames[turn.playerId] ?? `P${turn.playerId}`;
+    lines.push(`--- Turn ${turn.turnNumber} (${turnPlayerName}) ---`);
+
+    for (const action of turn.actions) {
+      const formatted = formatAction(action, playerNames, playerColors);
+      if (formatted) {
+        lines.push(`  ${formatted.text}`);
+      }
+    }
+  }
+
+  lines.push('');
+  lines.push(`=== End of Log (${recording.turnCount} turns) ===`);
+  return lines.join('\n');
 }
