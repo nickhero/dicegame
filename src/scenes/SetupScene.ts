@@ -487,7 +487,12 @@ export class SetupScene extends Phaser.Scene {
       this.config.mapSeed = String(this.previewSeed);
     }
 
-    savePreferences(this.config);
+    // Save preferences WITHOUT the auto-generated seed (so next game gets a fresh one)
+    const prefsToSave = { ...this.config };
+    if (String(this.previewSeed) === prefsToSave.mapSeed) {
+      prefsToSave.mapSeed = null;
+    }
+    savePreferences(prefsToSave);
     this.scene.start('GameScene', this.config);
   }
 }
