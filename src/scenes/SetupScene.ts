@@ -73,6 +73,7 @@ export class SetupScene extends Phaser.Scene {
 
   create(): void {
     this.config = loadPreferences();
+    this.previewSeed = Math.floor(Math.random() * 2147483646) + 1;
 
     const cx = GAME_WIDTH / 2;
     const cy = GAME_HEIGHT / 2;
