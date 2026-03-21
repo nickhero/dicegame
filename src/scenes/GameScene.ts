@@ -61,6 +61,7 @@ export class GameScene extends Phaser.Scene {
   private gameRecorder!: GameRecorder;
   private undoSnapshot: StateSnapshot | null = null;
   private undoUsedThisTurn = false;
+  private gameSeed = 0;
 
   constructor() {
     super('GameScene');
@@ -98,6 +99,7 @@ export class GameScene extends Phaser.Scene {
     } else {
       seed = Date.now();
     }
+    this.gameSeed = seed;
     this.rng = new SeededRandom(seed);
 
     const playerCount = this.setupConfig.playerCount;
@@ -211,6 +213,13 @@ export class GameScene extends Phaser.Scene {
 
     // Initial render
     this.refreshDisplay();
+
+    // Seed display below HUD panel
+    this.add.text(GAME_WIDTH - 200, 318, `Seed: ${this.gameSeed}`, {
+      fontSize: '10px',
+      color: '#555566',
+      fontFamily: 'monospace',
+    }).setDepth(100);
 
     if (this.spectatorMode) {
       // Instant spectate: run entire simulation with no UI, jump to results

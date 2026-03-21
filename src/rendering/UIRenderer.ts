@@ -167,7 +167,8 @@ export class UIRenderer {
         .reduce((sum, t) => sum + t.dice, 0);
 
       const marker = i === state.currentPlayerIndex ? '▶ ' : '  ';
-      const status = p.isAlive ? `${territories}T ${totalDice}D` : 'DEAD';
+      const reserve = p.reserveDice > 0 ? ` +${p.reserveDice}R` : '';
+      const status = p.isAlive ? `${territories}T ${totalDice}D${reserve}` : 'DEAD';
 
       let name: string;
       if (p.isHuman) {
