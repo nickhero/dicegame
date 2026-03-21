@@ -57,3 +57,13 @@ export function resolveBattle(
     attackerWins: attackerTotal > defenderTotal,
   };
 }
+
+/**
+ * Estimate attack success probability using the average dice advantage.
+ * Each die averages 3.5. Attacker needs to roll strictly higher.
+ */
+export function estimateWinProbability(attackerDice: number, defenderDice: number): number {
+  const diff = attackerDice - defenderDice;
+  // Sigmoid approximation: 0 diff → ~40%, +1 → ~60%, +2 → ~77%, -1 → ~23%
+  return 1 / (1 + Math.exp(-0.8 * diff + 0.4));
+}

@@ -17,6 +17,9 @@ import { PersonalityType, getRandomPersonality, PERSONALITIES } from '../game/AI
 import { SPEED_CONFIGS, GameSetupConfig, DEFAULT_SETUP } from '../game/GameConfig';
 import { getVisibleTerritories } from '../game/FogOfWar';
 import { useFortify, useReinforce, POWER_UPS } from '../game/PowerUps';
+import { estimateWinProbability } from '../game/DiceBattle';
+import { GameRecorder } from '../game/GameRecorder';
+import { createSnapshot, restoreSnapshot, StateSnapshot } from '../game/GameStateSnapshot';
 import { SeededRandom } from '../utils/random';
 import { MapRenderer } from '../rendering/MapRenderer';
 import { DiceRenderer, createDiceTextures } from '../rendering/DiceRenderer';
@@ -51,6 +54,12 @@ export class GameScene extends Phaser.Scene {
   private powerUpPopup: Phaser.GameObjects.Container | null = null;
   private fortifyMode = false;
   private fortifySourceId: number | null = null;
+  private spectatorMode = false;
+  private spectatorPaused = false;
+  private spectatorLabel: Phaser.GameObjects.Text | null = null;
+  private gameRecorder!: GameRecorder;
+  private undoSnapshot: StateSnapshot | null = null;
+  private undoUsedThisTurn = false;
 
   constructor() {
     super('GameScene');
@@ -67,6 +76,7 @@ export class GameScene extends Phaser.Scene {
         mapShape: data.mapShape ?? DEFAULT_SETUP.mapShape,
         fogOfWar: data.fogOfWar ?? DEFAULT_SETUP.fogOfWar,
         powerUps: data.powerUps ?? DEFAULT_SETUP.powerUps,
+        spectatorMode: data.spectatorMode ?? DEFAULT_SETUP.spectatorMode,
       };
     } else {
       this.setupConfig = { ...DEFAULT_SETUP, aiPersonalities: [...DEFAULT_SETUP.aiPersonalities] };
@@ -99,16 +109,30 @@ export class GameScene extends Phaser.Scene {
       this.setupConfig.mapShape
     );
 
-    // Create players — player 0 is human, rest are AI
-    const names = ['AI Red', 'AI Green', 'AI Yellow', 'AI Purple', 'AI Cyan'];
-    const players = [createPlayer(0, 'Player', true, PLAYER_COLORS[0])];
-    for (let i = 1; i < playerCount; i++) {
-      const personalitySetting = this.setupConfig.aiPersonalities[i - 1] ?? 'random';
-      const personality: PersonalityType =
-        personalitySetting === 'random'
-          ? getRandomPersonality(this.rng)
-          : personalitySetting;
-      players.push(createPlayer(i, names[i - 1], false, PLAYER_COLORS[i], personality));
+    // Create players
+    this.spectatorMode = this.setupConfig.spectatorMode ?? false;
+    const allAINames = ['AI Blue', 'AI Red', 'AI Green', 'AI Yellow', 'AI Purple', 'AI Cyan'];
+    const humanNames = ['AI Red', 'AI Green', 'AI Yellow', 'AI Purple', 'AI Cyan'];
+    const players = [];
+    if (this.spectatorMode) {
+      for (let i = 0; i < playerCount; i++) {
+        const personalitySetting = this.setupConfig.aiPersonalities[i] ?? 'random';
+        const personality: PersonalityType =
+          personalitySetting === 'random'
+            ? getRandomPersonality(this.rng)
+            : personalitySetting;
+        players.push(createPlayer(i, allAINames[i], false, PLAYER_COLORS[i], personality));
+      }
+    } else {
+      players.push(createPlayer(0, 'Player', true, PLAYER_COLORS[0]));
+      for (let i = 1; i < playerCount; i++) {
+        const personalitySetting = this.setupConfig.aiPersonalities[i - 1] ?? 'random';
+        const personality: PersonalityType =
+          personalitySetting === 'random'
+            ? getRandomPersonality(this.rng)
+            : personalitySetting;
+        players.push(createPlayer(i, humanNames[i - 1], false, PLAYER_COLORS[i], personality));
+      }
     }
 
     // Assign territories and dice
@@ -131,12 +155,18 @@ export class GameScene extends Phaser.Scene {
     this.territoryEffects = new TerritoryEffects(this);
     this.soundManager = new SoundManager();
     this.gameStats = new GameStats();
+    this.gameRecorder = new GameRecorder();
 
     // Record initial turn
     this.gameStats.recordTurnStart(this.gameState);
+    this.gameRecorder.startTurn(this.gameState.turnNumber, this.gameState.currentPlayerIndex);
 
     // Setup UI callbacks
     this.uiRenderer.setEndTurnCallback(() => this.onEndTurn());
+    this.uiRenderer.setUndoCallback(() => this.undoLastAttack());
+    if (this.spectatorMode) {
+      this.uiRenderer.setSpectatorMode(true);
+    }
 
     // Setup territory click handler
     this.mapRenderer.createInteractiveZones(this.gameState, (id) =>
@@ -172,7 +202,23 @@ export class GameScene extends Phaser.Scene {
 
     // Initial render
     this.refreshDisplay();
-    this.uiRenderer.setStatus('Select a territory to attack from');
+
+    if (this.spectatorMode) {
+      this.spectatorLabel = this.add.text(GAME_WIDTH / 2, 15, '👁 SPECTATING (Space to pause)', {
+        fontSize: '14px',
+        color: '#ffcc00',
+        fontFamily: 'monospace',
+        fontStyle: 'bold',
+        stroke: '#000000',
+        strokeThickness: 3,
+      }).setOrigin(0.5).setDepth(200);
+
+      this.uiRenderer.setStatus('Spectator mode — watching AI battle');
+      this.isProcessing = true;
+      this.time.delayedCall(500, () => this.processAITurns());
+    } else {
+      this.uiRenderer.setStatus('Select a territory to attack from');
+    }
   }
 
   private handleKeyDown(event: KeyboardEvent): void {
@@ -189,6 +235,13 @@ export class GameScene extends Phaser.Scene {
     if (key === '2') { this.setSpeed('fast'); return; }
     if (key === '3') { this.setSpeed('instant'); return; }
 
+    // Space — pause/resume in spectator mode
+    if (key === ' ' && this.spectatorMode) {
+      event.preventDefault();
+      this.toggleSpectatorPause();
+      return;
+    }
+
     // Block all other shortcuts while a dialog is open
     if (this.isDialogOpen) return;
 
@@ -204,8 +257,8 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    // S — surrender with confirmation
-    if (key === 'S') {
+    // S — surrender with confirmation (not in spectator mode)
+    if (key === 'S' && !this.spectatorMode) {
       this.showSurrenderDialog();
       return;
     }
@@ -216,6 +269,12 @@ export class GameScene extends Phaser.Scene {
 
     const currentPlayer = this.gameState.players[this.gameState.currentPlayerIndex];
     if (!currentPlayer.isHuman) return;
+
+    // Z — undo last attack
+    if (key === 'Z') {
+      this.undoLastAttack();
+      return;
+    }
 
     // E / Space — end turn
     if (key === 'E' || key === ' ') {
@@ -253,7 +312,7 @@ export class GameScene extends Phaser.Scene {
     const cx = GAME_WIDTH / 2;
     const cy = GAME_HEIGHT / 2;
     const w = 350;
-    const h = 340;
+    const h = 370;
 
     this.helpOverlay = this.add.container(cx, cy).setDepth(1000);
 
@@ -274,6 +333,7 @@ export class GameScene extends Phaser.Scene {
 
     const shortcuts = [
       ['E / Space', 'End turn'],
+      ['Z', 'Undo last attack'],
       ['Escape', 'Deselect territory'],
       ['1 / 2 / 3', 'Speed: Normal/Fast/Instant'],
       ['S', 'Surrender'],
@@ -283,7 +343,7 @@ export class GameScene extends Phaser.Scene {
     ];
 
     shortcuts.forEach(([key, desc], i) => {
-      const y = -h / 2 + 75 + i * 40;
+      const y = -h / 2 + 75 + i * 36;
       const keyText = this.add.text(-w / 2 + 30, y, key!, {
         fontSize: '14px',
         color: '#88bbff',
@@ -463,6 +523,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private onTerritoryClick(territoryId: number): void {
+    if (this.spectatorMode) return;
     if (this.isProcessing) return;
     if (this.gameState.phase === 'gameOver') return;
 
@@ -544,10 +605,20 @@ export class GameScene extends Phaser.Scene {
 
     // Execute the attack
     this.isProcessing = true;
+
+    // Save snapshot for undo (if not already used this turn)
+    if (!this.undoUsedThisTurn) {
+      this.undoSnapshot = createSnapshot(this.gameState);
+    }
+
     const attackerPlayerId = this.gameState.currentPlayerIndex;
     const defenderPlayerId = this.gameState.territories[territoryId].owner;
     const result = executeAttack(attackerId, territoryId, this.gameState, this.rng);
     this.gameStats.recordAttack(attackerPlayerId, defenderPlayerId, result, this.gameState);
+    this.gameRecorder.recordAction({
+      type: 'attack', attackerId, defenderId: territoryId,
+      attackerPlayerId, defenderPlayerId,
+    });
 
     const outcome = result.attackerWins ? 'won' : 'lost';
     this.eventLog.addEvent(
@@ -670,6 +741,7 @@ export class GameScene extends Phaser.Scene {
     const t = this.gameState.territories[territoryId];
     const before = t.dice;
     if (useReinforce(territoryId, this.gameState)) {
+      this.gameRecorder.recordAction({ type: 'reinforce', territoryId, playerId: this.gameState.currentPlayerIndex });
       this.eventLog.addEvent(
         `Used Reinforce on T${territoryId} (${before}→${t.dice} dice)`,
         PLAYER_COLORS[this.gameState.currentPlayerIndex],
@@ -706,6 +778,10 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    this.gameRecorder.recordAction({
+      type: 'fortify', fromId: sourceId, toId: targetId, diceCount: movable,
+      playerId: this.gameState.currentPlayerIndex,
+    });
     this.eventLog.addEvent(
       `Fortified T${targetId} with ${movable} dice from T${sourceId}`,
       PLAYER_COLORS[this.gameState.currentPlayerIndex],
@@ -720,6 +796,41 @@ export class GameScene extends Phaser.Scene {
     this.fortifySourceId = null;
     this.mapRenderer.clearHighlight();
     this.uiRenderer.setStatus('Select a territory to attack from');
+  }
+
+  // ─── Undo ────────────────────────────────────────────────
+
+  private undoLastAttack(): void {
+    if (!this.undoSnapshot || this.undoUsedThisTurn) {
+      this.uiRenderer.setStatus('No attack to undo');
+      return;
+    }
+
+    restoreSnapshot(this.gameState, this.undoSnapshot);
+    this.gameState.phase = 'selectingAttacker';
+    this.gameState.selectedTerritoryId = null;
+    this.undoSnapshot = null;
+    this.undoUsedThisTurn = true;
+    this.eventLog.addEvent('Undid last attack', 0xaaaaaa);
+    this.refreshDisplay();
+    this.uiRenderer.setStatus('Attack undone. Select a territory to attack from.');
+  }
+
+  // ─── Spectator ───────────────────────────────────────────
+
+  private toggleSpectatorPause(): void {
+    this.spectatorPaused = !this.spectatorPaused;
+    if (this.spectatorLabel) {
+      this.spectatorLabel.setText(
+        this.spectatorPaused
+          ? '⏸ PAUSED (Space to resume)'
+          : '👁 SPECTATING (Space to pause)',
+      );
+    }
+    if (!this.spectatorPaused && !this.isProcessing && this.gameState.phase !== 'gameOver') {
+      this.isProcessing = true;
+      this.processAITurns();
+    }
   }
 
   private snapshotDice(playerId: number): Map<number, number> {
@@ -783,13 +894,23 @@ export class GameScene extends Phaser.Scene {
     this.isProcessing = true;
     this.gameState.phase = 'selectingAttacker';
     this.gameState.selectedTerritoryId = null;
+    this.dismissPowerUpPopup();
+
+    // Clear undo state for new turn
+    this.undoSnapshot = null;
+    this.undoUsedThisTurn = false;
 
     const playerIdx = this.gameState.currentPlayerIndex;
     const player = this.gameState.players[playerIdx];
     const diceBefore = this.snapshotDice(player.id);
 
+    // Record end turn
+    this.gameRecorder.recordAction({ type: 'endTurn', playerId: playerIdx });
+    this.gameRecorder.endCurrentTurn();
+
     endTurn(this.gameState, this.rng);
     this.gameStats.recordTurnStart(this.gameState);
+    this.gameRecorder.startTurn(this.gameState.turnNumber, this.gameState.currentPlayerIndex);
 
     const diceAfter = this.snapshotDice(player.id);
     let bonus = 0;
@@ -860,36 +981,33 @@ export class GameScene extends Phaser.Scene {
         thinkingTimer.destroy();
         thinkingText.destroy();
         this.eventLog.addEvent(`${currentPlayer.name} surrendered!`, 0xff4444);
+        this.gameRecorder.recordAction({ type: 'surrender', playerId: currentPlayer.id });
         distributeSurrenderedTerritories(this.gameState, currentPlayer.id);
         this.refreshDisplay();
 
         if ((this.gameState.phase as string) === 'gameOver') {
+          this.gameRecorder.endCurrentTurn();
           this.time.delayedCall(this.getDelay(1000), () => this.handleGameOver());
           this.isProcessing = false;
           return;
         }
 
         // Advance past the now-dead surrendered player
+        this.gameRecorder.recordAction({ type: 'endTurn', playerId: currentPlayer.id });
+        this.gameRecorder.endCurrentTurn();
         endTurn(this.gameState, this.rng);
         this.gameStats.recordTurnStart(this.gameState);
+        this.gameRecorder.startTurn(this.gameState.turnNumber, this.gameState.currentPlayerIndex);
 
         if ((this.gameState.phase as string) === 'gameOver') {
+          this.gameRecorder.endCurrentTurn();
           this.time.delayedCall(this.getDelay(1000), () => this.handleGameOver());
           this.isProcessing = false;
           return;
         }
 
         // Continue to next player
-        const nextPlayer = this.gameState.players[this.gameState.currentPlayerIndex];
-        if (!nextPlayer.isHuman && nextPlayer.isAlive) {
-          await this.delay(this.getDelay(500));
-          await this.processAITurns();
-        } else {
-          this.isProcessing = false;
-          this.soundManager.playTurnStart();
-          this.uiRenderer.setStatus('Your turn! Select a territory to attack from.');
-          this.refreshDisplay();
-        }
+        await this.advanceToNextPlayer();
         return;
       }
 
@@ -956,6 +1074,10 @@ export class GameScene extends Phaser.Scene {
         const defenderPlayerId = this.gameState.territories[move.defenderId].owner;
         const result = executeAttack(move.attackerId, move.defenderId, this.gameState, this.rng);
         this.gameStats.recordAttack(attackerPlayerId, defenderPlayerId, result, this.gameState);
+        this.gameRecorder.recordAction({
+          type: 'attack', attackerId: move.attackerId, defenderId: move.defenderId,
+          attackerPlayerId, defenderPlayerId,
+        });
         this.refreshDisplay();
         attackCount++;
 
@@ -1018,6 +1140,7 @@ export class GameScene extends Phaser.Scene {
       }
 
       if ((this.gameState.phase as string) === 'gameOver') {
+        this.gameRecorder.endCurrentTurn();
         this.refreshDisplay();
         this.time.delayedCall(this.getDelay(1000), () => this.handleGameOver());
         this.isProcessing = false;
@@ -1027,8 +1150,11 @@ export class GameScene extends Phaser.Scene {
       // Track dice before endTurn for AI bonus logging
       const aiDiceBefore = this.snapshotDice(currentPlayer.id);
 
+      this.gameRecorder.recordAction({ type: 'endTurn', playerId: currentPlayer.id });
+      this.gameRecorder.endCurrentTurn();
       endTurn(this.gameState, this.rng);
       this.gameStats.recordTurnStart(this.gameState);
+      this.gameRecorder.startTurn(this.gameState.turnNumber, this.gameState.currentPlayerIndex);
 
       const aiDiceAfter = this.snapshotDice(currentPlayer.id);
       let aiBonus = 0;
@@ -1051,22 +1177,35 @@ export class GameScene extends Phaser.Scene {
       this.refreshDisplay();
 
       if ((this.gameState.phase as string) === 'gameOver') {
+        this.gameRecorder.endCurrentTurn();
         this.time.delayedCall(this.getDelay(1000), () => this.handleGameOver());
         this.isProcessing = false;
         return;
       }
 
       // Continue to next AI or back to human
-      const nextPlayer = this.gameState.players[this.gameState.currentPlayerIndex];
-      if (!nextPlayer.isHuman && nextPlayer.isAlive) {
-        await this.delay(this.getDelay(500));
-        await this.processAITurns();
-      } else {
+      await this.advanceToNextPlayer();
+    } else {
+      // No alive AI to process — hand back control
+      await this.advanceToNextPlayer();
+    }
+  }
+
+  /** Advance to the next player — continue AI turns or hand control back to human */
+  private async advanceToNextPlayer(): Promise<void> {
+    const nextPlayer = this.gameState.players[this.gameState.currentPlayerIndex];
+
+    if (this.spectatorMode) {
+      // In spectator mode, all players are AI. Check for pause.
+      if (this.spectatorPaused) {
         this.isProcessing = false;
-        this.soundManager.playTurnStart();
-        this.uiRenderer.setStatus('Your turn! Select a territory to attack from.');
-        this.refreshDisplay();
+        return;
       }
+      await this.delay(this.getDelay(500));
+      await this.processAITurns();
+    } else if (!nextPlayer.isHuman && nextPlayer.isAlive) {
+      await this.delay(this.getDelay(500));
+      await this.processAITurns();
     } else {
       this.isProcessing = false;
       this.soundManager.playTurnStart();
@@ -1125,11 +1264,14 @@ export class GameScene extends Phaser.Scene {
     } else {
       this.soundManager.playDefeat();
     }
+    this.gameRecorder.endCurrentTurn();
     this.scene.start('GameOverScene', {
       winnerName: winner?.name ?? 'Unknown',
       isVictory: winner?.isHuman ?? false,
       stats: this.gameStats.getSummary(),
       playerNames: this.gameState.players.map((p) => p.name),
+      recording: this.gameRecorder.getRecording(),
+      setupConfig: this.setupConfig,
     });
   }
 
@@ -1148,6 +1290,7 @@ export class GameScene extends Phaser.Scene {
     this.mapRenderer.drawMap(this.gameState, selectedId, validTargets, attackable, visibleSet);
     this.diceRenderer.drawDiceStacks(this.gameState.territories, visibleSet);
     this.uiRenderer.update(this.gameState);
+    this.uiRenderer.setUndoVisible(!!this.undoSnapshot && !this.undoUsedThisTurn);
     this.territoryEffects.updateLowDiceWarnings(this.gameState);
   }
 
@@ -1157,7 +1300,22 @@ export class GameScene extends Phaser.Scene {
 
     const playerName = this.gameState.players[territory.owner]?.name ?? 'Unknown';
     const powerUpLabel = territory.powerUp ? POWER_UPS[territory.powerUp].description : undefined;
-    this.territoryEffects.showTooltip(territory, pointer.x, pointer.y, playerName, powerUpLabel);
+    const neighborCount = territory.neighbors.length;
+
+    // Calculate attack odds if hovering a valid target
+    let attackOdds: number | undefined;
+    if (!this.isProcessing && this.gameState.phase === 'selectingDefender') {
+      const attackerId = this.gameState.selectedTerritoryId;
+      if (attackerId !== null) {
+        const targets = getValidTargets(attackerId, this.gameState).map((t) => t.id);
+        if (targets.includes(territoryId)) {
+          const atk = this.gameState.territories[attackerId];
+          attackOdds = estimateWinProbability(atk.dice, territory.dice);
+        }
+      }
+    }
+
+    this.territoryEffects.showTooltip(territory, pointer.x, pointer.y, playerName, powerUpLabel, neighborCount, attackOdds);
 
     // Preview attack line when hovering a valid target during defender selection
     if (!this.isProcessing && this.gameState.phase === 'selectingDefender') {

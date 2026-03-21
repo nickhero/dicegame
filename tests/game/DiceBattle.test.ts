@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { rollDice, sumRolls, resolveBattle } from '../../src/game/DiceBattle';
+import { rollDice, sumRolls, resolveBattle, estimateWinProbability } from '../../src/game/DiceBattle';
 import { SeededRandom } from '../../src/utils/random';
 
 describe('rollDice', () => {
@@ -77,5 +77,31 @@ describe('resolveBattle', () => {
 
     expect(wins8v2).toBeGreaterThan(trials * 0.9); // 8v2 should win ~99%+
     expect(wins2v8).toBeLessThan(trials * 0.05);   // 2v8 should win <5%
+  });
+});
+
+describe('estimateWinProbability', () => {
+  it('returns a value between 0 and 1', () => {
+    for (let a = 1; a <= 8; a++) {
+      for (let d = 1; d <= 8; d++) {
+        const p = estimateWinProbability(a, d);
+        expect(p).toBeGreaterThan(0);
+        expect(p).toBeLessThan(1);
+      }
+    }
+  });
+
+  it('higher attacker dice gives higher probability', () => {
+    const p3v3 = estimateWinProbability(3, 3);
+    const p4v3 = estimateWinProbability(4, 3);
+    const p5v3 = estimateWinProbability(5, 3);
+    expect(p4v3).toBeGreaterThan(p3v3);
+    expect(p5v3).toBeGreaterThan(p4v3);
+  });
+
+  it('equal dice gives approximately 40% for attacker', () => {
+    const p = estimateWinProbability(4, 4);
+    expect(p).toBeGreaterThan(0.3);
+    expect(p).toBeLessThan(0.5);
   });
 });

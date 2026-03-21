@@ -10,7 +10,10 @@ export class UIRenderer {
   private turnText!: Phaser.GameObjects.Text;
   private statusText!: Phaser.GameObjects.Text;
   private endTurnBtn!: Phaser.GameObjects.Container;
+  private undoBtn!: Phaser.GameObjects.Container;
   private onEndTurn: (() => void) | null = null;
+  private onUndo: (() => void) | null = null;
+  private spectatorMode = false;
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -60,6 +63,46 @@ export class UIRenderer {
     // End turn button
     this.endTurnBtn = this.createEndTurnButton(panelX, 290);
     this.container.add(this.endTurnBtn);
+
+    // Undo button (below end turn)
+    this.undoBtn = this.createUndoButton(panelX, 325);
+    this.container.add(this.undoBtn);
+  }
+
+  private createUndoButton(x: number, y: number): Phaser.GameObjects.Container {
+    const btn = this.scene.add.container(x + 80, y);
+
+    const bg = this.scene.add.graphics();
+    bg.fillStyle(0x555533, 1);
+    bg.fillRoundedRect(-70, -12, 140, 24, 5);
+    btn.add(bg);
+
+    const text = this.scene.add.text(0, 0, 'UNDO (Z)', {
+      fontSize: '12px',
+      color: '#ffffff',
+      fontFamily: 'monospace',
+      fontStyle: 'bold',
+    }).setOrigin(0.5);
+    btn.add(text);
+
+    const zone = this.scene.add.zone(0, 0, 140, 24).setInteractive({ useHandCursor: true });
+    zone.on('pointerover', () => {
+      bg.clear();
+      bg.fillStyle(0x888844, 1);
+      bg.fillRoundedRect(-70, -12, 140, 24, 5);
+    });
+    zone.on('pointerout', () => {
+      bg.clear();
+      bg.fillStyle(0x555533, 1);
+      bg.fillRoundedRect(-70, -12, 140, 24, 5);
+    });
+    zone.on('pointerdown', () => {
+      if (this.onUndo) this.onUndo();
+    });
+    btn.add(zone);
+    btn.setVisible(false);
+
+    return btn;
   }
 
   private createEndTurnButton(x: number, y: number): Phaser.GameObjects.Container {
@@ -101,6 +144,14 @@ export class UIRenderer {
     this.onEndTurn = cb;
   }
 
+  setUndoCallback(cb: () => void): void {
+    this.onUndo = cb;
+  }
+
+  setSpectatorMode(enabled: boolean): void {
+    this.spectatorMode = enabled;
+  }
+
   update(state: GameState): void {
     this.turnText.setText(`Turn ${state.turnNumber}`);
 
@@ -136,7 +187,12 @@ export class UIRenderer {
 
     // Show/hide end turn button based on phase
     const isHumanTurn = state.players[state.currentPlayerIndex]?.isHuman;
-    this.endTurnBtn.setVisible(isHumanTurn && state.phase === 'selectingAttacker');
+    this.endTurnBtn.setVisible(!this.spectatorMode && isHumanTurn && state.phase === 'selectingAttacker');
+  }
+
+  /** Show/hide undo button (called from GameScene when undo state changes) */
+  setUndoVisible(visible: boolean): void {
+    this.undoBtn.setVisible(visible && !this.spectatorMode);
   }
 
   setStatus(text: string): void {

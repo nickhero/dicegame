@@ -33,6 +33,7 @@ describe('DEFAULT_SETUP', () => {
     expect(DEFAULT_SETUP.mapShape).toBe('rectangle');
     expect(DEFAULT_SETUP.fogOfWar).toBe(false);
     expect(DEFAULT_SETUP.powerUps).toBe(false);
+    expect(DEFAULT_SETUP.spectatorMode).toBe(false);
   });
 
   it('has 5 AI personality slots', () => {
@@ -91,6 +92,7 @@ describe('savePreferences / loadPreferences', () => {
       mapShape: 'diamond',
       fogOfWar: true,
       powerUps: true,
+      spectatorMode: true,
     };
     savePreferences(custom);
     const loaded = loadPreferences();
@@ -201,5 +203,23 @@ describe('savePreferences / loadPreferences', () => {
     savePreferences({ powerUps: 1 as any });
     const loaded = loadPreferences();
     expect(loaded.powerUps).toBe(DEFAULT_SETUP.powerUps);
+  });
+
+  it('spectatorMode defaults to false', () => {
+    const loaded = loadPreferences();
+    expect(loaded.spectatorMode).toBe(false);
+  });
+
+  it('accepts boolean spectatorMode values', () => {
+    savePreferences({ spectatorMode: true });
+    expect(loadPreferences().spectatorMode).toBe(true);
+    savePreferences({ spectatorMode: false });
+    expect(loadPreferences().spectatorMode).toBe(false);
+  });
+
+  it('rejects non-boolean spectatorMode and uses default', () => {
+    savePreferences({ spectatorMode: 'yes' as any });
+    const loaded = loadPreferences();
+    expect(loaded.spectatorMode).toBe(DEFAULT_SETUP.spectatorMode);
   });
 });

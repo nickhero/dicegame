@@ -1,12 +1,16 @@
 import Phaser from 'phaser';
 import { GAME_WIDTH, GAME_HEIGHT, PLAYER_COLORS, PLAYER_COLOR_STRINGS } from '../config';
 import { GameStatsSummary, PlayerStats } from '../game/GameStats';
+import { TurnRecord } from '../game/GameRecorder';
+import { GameSetupConfig } from '../game/GameConfig';
 
 interface GameOverData {
   winnerName: string;
   isVictory: boolean;
   stats?: GameStatsSummary;
   playerNames?: string[];
+  recording?: TurnRecord[];
+  setupConfig?: GameSetupConfig;
 }
 
 export class GameOverScene extends Phaser.Scene {
@@ -14,6 +18,8 @@ export class GameOverScene extends Phaser.Scene {
   private isVictory: boolean = false;
   private stats: GameStatsSummary | null = null;
   private playerNames: string[] = [];
+  private recording: TurnRecord[] = [];
+  private setupConfig: GameSetupConfig | null = null;
 
   constructor() {
     super('GameOverScene');
@@ -24,6 +30,8 @@ export class GameOverScene extends Phaser.Scene {
     this.isVictory = data.isVictory ?? false;
     this.stats = data.stats ?? null;
     this.playerNames = data.playerNames ?? [];
+    this.recording = data.recording ?? [];
+    this.setupConfig = data.setupConfig ?? null;
   }
 
   create(): void {
@@ -53,36 +61,73 @@ export class GameOverScene extends Phaser.Scene {
       this.drawStatsPanel(cx, titleY + 80);
     }
 
-    // Play again button — at bottom
+    // Buttons — Play Again + Watch Replay
     const btnY = hasStats ? GAME_HEIGHT - 45 : GAME_HEIGHT / 2 + 55;
+    const hasReplay = this.recording.length > 0 && this.setupConfig !== null;
+    const playBtnX = hasReplay ? cx - 110 : cx;
+    const replayBtnX = cx + 110;
+
+    // Play Again button
     const btnBg = this.add.graphics();
     btnBg.fillStyle(0x4a90d9, 1);
-    btnBg.fillRoundedRect(cx - 100, btnY - 25, 200, 50, 8);
+    btnBg.fillRoundedRect(playBtnX - 100, btnY - 25, 200, 50, 8);
 
-    this.add.text(cx, btnY, 'PLAY AGAIN', {
+    this.add.text(playBtnX, btnY, 'PLAY AGAIN', {
       fontSize: '20px',
       color: '#ffffff',
       fontFamily: 'monospace',
       fontStyle: 'bold',
     }).setOrigin(0.5);
 
-    const hitZone = this.add.zone(cx, btnY, 200, 50).setInteractive({ useHandCursor: true });
+    const hitZone = this.add.zone(playBtnX, btnY, 200, 50).setInteractive({ useHandCursor: true });
 
     hitZone.on('pointerover', () => {
       btnBg.clear();
       btnBg.fillStyle(0x6ab0f9, 1);
-      btnBg.fillRoundedRect(cx - 100, btnY - 25, 200, 50, 8);
+      btnBg.fillRoundedRect(playBtnX - 100, btnY - 25, 200, 50, 8);
     });
 
     hitZone.on('pointerout', () => {
       btnBg.clear();
       btnBg.fillStyle(0x4a90d9, 1);
-      btnBg.fillRoundedRect(cx - 100, btnY - 25, 200, 50, 8);
+      btnBg.fillRoundedRect(playBtnX - 100, btnY - 25, 200, 50, 8);
     });
 
     hitZone.on('pointerdown', () => {
       this.scene.start('MenuScene');
     });
+
+    // Watch Replay button
+    if (hasReplay) {
+      const replayBg = this.add.graphics();
+      replayBg.fillStyle(0x905ad9, 1);
+      replayBg.fillRoundedRect(replayBtnX - 100, btnY - 25, 200, 50, 8);
+
+      this.add.text(replayBtnX, btnY, '▶ WATCH REPLAY', {
+        fontSize: '18px',
+        color: '#ffffff',
+        fontFamily: 'monospace',
+        fontStyle: 'bold',
+      }).setOrigin(0.5);
+
+      const replayZone = this.add.zone(replayBtnX, btnY, 200, 50).setInteractive({ useHandCursor: true });
+      replayZone.on('pointerover', () => {
+        replayBg.clear();
+        replayBg.fillStyle(0xb07af9, 1);
+        replayBg.fillRoundedRect(replayBtnX - 100, btnY - 25, 200, 50, 8);
+      });
+      replayZone.on('pointerout', () => {
+        replayBg.clear();
+        replayBg.fillStyle(0x905ad9, 1);
+        replayBg.fillRoundedRect(replayBtnX - 100, btnY - 25, 200, 50, 8);
+      });
+      replayZone.on('pointerdown', () => {
+        this.scene.start('ReplayScene', {
+          recording: this.recording,
+          setupConfig: this.setupConfig,
+        });
+      });
+    }
   }
 
   private drawStatsPanel(cx: number, startY: number): void {

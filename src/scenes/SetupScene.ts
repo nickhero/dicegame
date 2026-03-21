@@ -59,6 +59,7 @@ export class SetupScene extends Phaser.Scene {
   private shapeBtns: ButtonGroup[] = [];
   private fogOfWarBtn!: { bg: Phaser.GameObjects.Graphics; zone: Phaser.GameObjects.Zone; text: Phaser.GameObjects.Text; redraw: (active: boolean) => void };
   private powerUpsBtn!: { bg: Phaser.GameObjects.Graphics; zone: Phaser.GameObjects.Zone; text: Phaser.GameObjects.Text; redraw: (active: boolean) => void };
+  private spectatorBtn!: { bg: Phaser.GameObjects.Graphics; zone: Phaser.GameObjects.Zone; text: Phaser.GameObjects.Text; redraw: (active: boolean) => void };
   private aiRows: AIRow[] = [];
   private aiContainer!: Phaser.GameObjects.Container;
   private previewGraphics!: Phaser.GameObjects.Graphics;
@@ -190,6 +191,15 @@ export class SetupScene extends Phaser.Scene {
       },
     );
     this.powerUpsBtn.redraw(this.config.powerUps);
+
+    this.spectatorBtn = this.createButton(
+      left + 410, rowY - 5, 110, 30, 'Spectator',
+      () => {
+        this.config.spectatorMode = !this.config.spectatorMode;
+        this.spectatorBtn.redraw(this.config.spectatorMode);
+      },
+    );
+    this.spectatorBtn.redraw(this.config.spectatorMode);
 
     rowY += 55;
 

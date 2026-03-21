@@ -12,6 +12,7 @@ export interface GameSetupConfig {
   mapShape: MapShape;           // default: 'rectangle'
   fogOfWar: boolean;            // default: false
   powerUps: boolean;            // default: false
+  spectatorMode: boolean;       // default: false
 }
 
 export const DEFAULT_SETUP: GameSetupConfig = {
@@ -23,6 +24,7 @@ export const DEFAULT_SETUP: GameSetupConfig = {
   mapShape: 'rectangle',
   fogOfWar: false,
   powerUps: false,
+  spectatorMode: false,
 };
 
 export const TERRITORY_PRESETS = {
@@ -66,6 +68,7 @@ export function loadPreferences(): GameSetupConfig {
       mapShape: isValidMapShape(parsed.mapShape) ? parsed.mapShape : DEFAULT_SETUP.mapShape,
       fogOfWar: typeof parsed.fogOfWar === 'boolean' ? parsed.fogOfWar : DEFAULT_SETUP.fogOfWar,
       powerUps: typeof parsed.powerUps === 'boolean' ? parsed.powerUps : DEFAULT_SETUP.powerUps,
+      spectatorMode: typeof parsed.spectatorMode === 'boolean' ? parsed.spectatorMode : DEFAULT_SETUP.spectatorMode,
     };
   } catch {
     return { ...DEFAULT_SETUP, aiPersonalities: [...DEFAULT_SETUP.aiPersonalities] };

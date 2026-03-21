@@ -170,10 +170,20 @@ export class TerritoryEffects {
 
   // ─── Hover Tooltip ─────────────────────────────────────────
 
-  showTooltip(territory: Territory, x: number, y: number, playerName: string, powerUpLabel?: string): void {
-    let text = `Territory ${territory.id} \u2022 ${playerName} \u2022 ${territory.dice} dice`;
+  showTooltip(
+    territory: Territory, x: number, y: number, playerName: string,
+    powerUpLabel?: string, neighborCount?: number, attackOdds?: number,
+  ): void {
+    let text = `Territory ${territory.id} • ${playerName} • ${territory.dice} dice`;
+    if (neighborCount !== undefined) {
+      text += ` • ${neighborCount} neighbors`;
+    }
     if (powerUpLabel) {
       text += `\n${powerUpLabel}`;
+    }
+    if (attackOdds !== undefined) {
+      const pct = Math.round(attackOdds * 100);
+      text += `\nWin chance: ${pct}%`;
     }
     this.tooltipText.setText(text);
 

@@ -5,10 +5,11 @@ import { MenuScene } from './scenes/MenuScene';
 import { GameScene } from './scenes/GameScene';
 import { SetupScene } from './scenes/SetupScene';
 import { GameOverScene } from './scenes/GameOverScene';
+import { ReplayScene } from './scenes/ReplayScene';
 
 const config: Phaser.Types.Core.GameConfig = {
   ...gameConfig,
-  scene: [BootScene, MenuScene, SetupScene, GameScene, GameOverScene],
+  scene: [BootScene, MenuScene, SetupScene, GameScene, GameOverScene, ReplayScene],
 };
 
 new Phaser.Game(config);
