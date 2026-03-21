@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { GAME_WIDTH, GAME_HEIGHT } from '../config';
 import { loadHistory } from '../game/MatchHistory';
+import { VERSION } from '../version';
 
 export class MenuScene extends Phaser.Scene {
   constructor() {
@@ -36,6 +37,13 @@ export class MenuScene extends Phaser.Scene {
     this.createMenuButton(cx, cy + 110, historyLabel, 0x905ad9, 0xb07af9, () => {
       this.scene.start('HistoryScene');
     });
+
+    // Version
+    this.add.text(GAME_WIDTH - 10, GAME_HEIGHT - 10, `v${VERSION}`, {
+      fontSize: '11px',
+      color: '#444455',
+      fontFamily: 'monospace',
+    }).setOrigin(1, 1);
   }
 
   private createMenuButton(

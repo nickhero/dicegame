@@ -88,3 +88,71 @@ All visuals are programmatic — no external image assets. Dice textures are gen
 2. **Visual change?** → Modify `src/rendering/`, run `npm run typecheck`, verify in browser
 3. **New feature?** → Start with the game logic (testable), then wire up rendering
 4. **Adding constants?** → Put in `src/game/constants.ts` if needed by game logic, or `src/config.ts` if Phaser-only
+
+## Versioning & Commits
+
+### Semantic Versioning
+
+The game version lives in `src/version.ts` and is displayed on the main menu. Keep it in sync with `package.json`.
+
+### Conventional Commits (REQUIRED)
+
+All commit messages **must** use [Conventional Commits](https://www.conventionalcommits.org/) format:
+
+```
+<type>(<scope>): <short description>
+
+[optional body]
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
+```
+
+**Types and version impact:**
+
+| Type | When to use | Version bump |
+|------|------------|--------------|
+| `feat` | New feature or capability | **minor** (`npm run version:minor`) |
+| `fix` | Bug fix | **patch** (`npm run version:patch`) |
+| `refactor` | Code restructuring, no behavior change | patch |
+| `perf` | Performance improvement | patch |
+| `style` | Visual/UI changes (no logic change) | patch |
+| `docs` | Documentation only | none |
+| `test` | Adding/updating tests only | none |
+| `chore` | Build, config, tooling changes | none |
+
+**Scopes** (optional): `game`, `ai`, `ui`, `rendering`, `replay`, `history`, `config`, `map`
+
+**Examples:**
+```
+feat(ai): add defensive personality type
+fix(replay): prevent crash on empty recording
+refactor(game): extract dice distribution logic
+style(ui): improve HUD layout spacing
+```
+
+### Version Bump Workflow
+
+Before committing a `feat` or `fix`, bump the version:
+
+```bash
+npm run version:patch   # for fix, refactor, perf, style
+npm run version:minor   # for feat (new features)
+npm run version:major   # for breaking changes
+```
+
+Include the version file changes in the same commit. The version bump updates both `src/version.ts` and `package.json`.
+
+### Additional Game Logic Modules
+
+| File | Purpose |
+|------|---------|
+| `GameConfig.ts` | Setup config, speed options, localStorage persistence |
+| `GameRecorder.ts` | Central action recording for replay & stats |
+| `GameStats.ts` | Live stats + `computeFromRecording()` for historical |
+| `MatchHistory.ts` | localStorage persistence for match history |
+| `EventFormatter.ts` | Converts GameAction → display text |
+| `PowerUps.ts` | Shield, charge, fortify, reinforce power-ups |
+| `AIPersonality.ts` | AI personality types (aggressive, cautious, etc.) |
+| `FogOfWar.ts` | Visibility computation for fog of war mode |
+| `GameStateSnapshot.ts` | Snapshot/restore for undo |
+| `Surrender.ts` | Surrender logic and territory redistribution |
