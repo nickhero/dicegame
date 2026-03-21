@@ -259,6 +259,11 @@ export class ReplayScene extends Phaser.Scene {
         // Apply the recorded result directly instead of re-rolling
         const attacker = this.gameState.territories[action.attackerId];
         const defender = this.gameState.territories[action.defenderId];
+
+        // Consume passive power-ups (charge/shield) as the real battle engine would
+        if (attacker.powerUp === 'charge') attacker.powerUp = undefined;
+        if (defender.powerUp === 'shield') defender.powerUp = undefined;
+
         if (action.result.attackerWins) {
           defender.owner = attacker.owner;
           defender.dice = attacker.dice - 1;
