@@ -295,7 +295,11 @@ export class ReplayScene extends Phaser.Scene {
       }
 
       case 'endTurn': {
+        // Disable power-up spawning — replay applies spawns from recorded powerUpSpawn actions
+        const wasEnabled = this.gameState.powerUpsEnabled;
+        this.gameState.powerUpsEnabled = false;
         endTurn(this.gameState, this.rng);
+        this.gameState.powerUpsEnabled = wasEnabled;
         this.refreshDisplay();
         const nextName = this.gameState.players[this.gameState.currentPlayerIndex]?.name ?? '?';
         this.eventLog.addEvent(`Turn ${this.gameState.turnNumber} — ${nextName}'s turn`, 0xffffff);
@@ -320,6 +324,12 @@ export class ReplayScene extends Phaser.Scene {
 
       case 'reinforce': {
         useReinforce(action.territoryId, this.gameState);
+        this.refreshDisplay();
+        break;
+      }
+
+      case 'powerUpSpawn': {
+        this.gameState.territories[action.territoryId].powerUp = action.powerUpType;
         this.refreshDisplay();
         break;
       }
