@@ -98,7 +98,7 @@ export class GameOverScene extends Phaser.Scene {
     // Per-player table
     const tableTop = startY + 35;
     const colX = [cx - 280, cx - 120, cx - 30, cx + 40, cx + 130];
-    const headers = ['Player', 'Attacks', 'Won', 'Captured', 'Max Terr.'];
+    const headers = ['Player', 'Attacks', 'Won', 'Lost', 'Max Terr.'];
     const headerStyle: Phaser.Types.GameObjects.Text.TextStyle = {
       fontSize: '12px',
       color: '#888888',
@@ -125,7 +125,7 @@ export class GameOverScene extends Phaser.Scene {
       this.add.text(colX[0], rowY, name, { ...rowStyle, color });
       this.add.text(colX[1], rowY, `${ps.attacksInitiated}`, { ...rowStyle, color: '#cccccc' });
       this.add.text(colX[2], rowY, `${ps.attacksWon}`, { ...rowStyle, color: '#cccccc' });
-      this.add.text(colX[3], rowY, `${ps.territoriesCaptured}`, { ...rowStyle, color: '#cccccc' });
+      this.add.text(colX[3], rowY, `${ps.attacksLost}`, { ...rowStyle, color: '#cccccc' });
       this.add.text(colX[4], rowY, `${ps.maxTerritories}`, { ...rowStyle, color: '#cccccc' });
       rowY += 18;
     }

@@ -1,6 +1,7 @@
 // Game configuration — pure TypeScript, no Phaser imports.
 
 import { PersonalityType } from './AIPersonality';
+import { MapShape } from './MapShapes';
 
 export interface GameSetupConfig {
   playerCount: number;          // 2–6
@@ -8,6 +9,10 @@ export interface GameSetupConfig {
   mapSeed: string | null;       // optional seed for reproducible maps
   speed: 'normal' | 'fast' | 'instant';
   aiPersonalities: (PersonalityType | 'random')[];  // one per AI slot (max 5)
+  mapShape: MapShape;           // default: 'rectangle'
+  gridType: 'square' | 'hex';   // default: 'square'
+  fogOfWar: boolean;            // default: false
+  powerUps: boolean;            // default: false
 }
 
 export const DEFAULT_SETUP: GameSetupConfig = {
@@ -16,6 +21,10 @@ export const DEFAULT_SETUP: GameSetupConfig = {
   mapSeed: null,
   speed: 'normal',
   aiPersonalities: ['random', 'random', 'random', 'random', 'random'],
+  mapShape: 'rectangle',
+  gridType: 'square',
+  fogOfWar: false,
+  powerUps: false,
 };
 
 export const TERRITORY_PRESETS = {
@@ -56,6 +65,10 @@ export function loadPreferences(): GameSetupConfig {
       mapSeed: typeof parsed.mapSeed === 'string' ? parsed.mapSeed : DEFAULT_SETUP.mapSeed,
       speed: isValidSpeed(parsed.speed) ? parsed.speed : DEFAULT_SETUP.speed,
       aiPersonalities: isValidPersonalities(parsed.aiPersonalities) ? parsed.aiPersonalities : [...DEFAULT_SETUP.aiPersonalities],
+      mapShape: isValidMapShape(parsed.mapShape) ? parsed.mapShape : DEFAULT_SETUP.mapShape,
+      gridType: isValidGridType(parsed.gridType) ? parsed.gridType : DEFAULT_SETUP.gridType,
+      fogOfWar: typeof parsed.fogOfWar === 'boolean' ? parsed.fogOfWar : DEFAULT_SETUP.fogOfWar,
+      powerUps: typeof parsed.powerUps === 'boolean' ? parsed.powerUps : DEFAULT_SETUP.powerUps,
     };
   } catch {
     return { ...DEFAULT_SETUP, aiPersonalities: [...DEFAULT_SETUP.aiPersonalities] };
@@ -81,4 +94,14 @@ const VALID_PERSONALITIES = new Set<string>([
 
 function isValidPersonalities(v: unknown): v is (PersonalityType | 'random')[] {
   return Array.isArray(v) && v.length <= 5 && v.every((p) => typeof p === 'string' && VALID_PERSONALITIES.has(p));
+}
+
+const VALID_MAP_SHAPES = new Set<string>(['rectangle', 'diamond', 'ring', 'continent']);
+
+function isValidMapShape(v: unknown): v is MapShape {
+  return typeof v === 'string' && VALID_MAP_SHAPES.has(v);
+}
+
+function isValidGridType(v: unknown): v is 'square' | 'hex' {
+  return v === 'square' || v === 'hex';
 }

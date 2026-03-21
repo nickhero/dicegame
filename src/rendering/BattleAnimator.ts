@@ -194,6 +194,7 @@ export class BattleAnimator {
           .setScale(DICE_DISPLAY_SCALE)
           .setTint(tint)
           .setDepth(DEPTH + 2);
+        this.objects.push(spriteRef[0]);
       });
     }
 

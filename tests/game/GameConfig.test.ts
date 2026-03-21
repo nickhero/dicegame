@@ -30,6 +30,10 @@ describe('DEFAULT_SETUP', () => {
     expect(DEFAULT_SETUP.mapSeed).toBeNull();
     expect(DEFAULT_SETUP.speed).toBe('normal');
     expect(DEFAULT_SETUP.aiPersonalities).toEqual(['random', 'random', 'random', 'random', 'random']);
+    expect(DEFAULT_SETUP.mapShape).toBe('rectangle');
+    expect(DEFAULT_SETUP.gridType).toBe('square');
+    expect(DEFAULT_SETUP.fogOfWar).toBe(false);
+    expect(DEFAULT_SETUP.powerUps).toBe(false);
   });
 
   it('has 5 AI personality slots', () => {
@@ -85,6 +89,10 @@ describe('savePreferences / loadPreferences', () => {
       mapSeed: 'abc123',
       speed: 'fast',
       aiPersonalities: ['aggressive', 'cautious', 'turtle', 'random', 'balanced'],
+      mapShape: 'diamond',
+      gridType: 'hex',
+      fogOfWar: true,
+      powerUps: true,
     };
     savePreferences(custom);
     const loaded = loadPreferences();
@@ -155,5 +163,59 @@ describe('savePreferences / loadPreferences', () => {
     loaded.playerCount = 99;
     loaded.aiPersonalities.push('aggressive');
     expect(DEFAULT_SETUP).toEqual(before);
+  });
+
+  it('accepts valid mapShape values', () => {
+    for (const shape of ['rectangle', 'diamond', 'ring', 'continent'] as const) {
+      savePreferences({ mapShape: shape });
+      const loaded = loadPreferences();
+      expect(loaded.mapShape).toBe(shape);
+    }
+  });
+
+  it('rejects invalid mapShape and uses default', () => {
+    savePreferences({ mapShape: 'triangle' as any });
+    const loaded = loadPreferences();
+    expect(loaded.mapShape).toBe(DEFAULT_SETUP.mapShape);
+  });
+
+  it('accepts valid gridType values', () => {
+    for (const gt of ['square', 'hex'] as const) {
+      savePreferences({ gridType: gt });
+      const loaded = loadPreferences();
+      expect(loaded.gridType).toBe(gt);
+    }
+  });
+
+  it('rejects invalid gridType and uses default', () => {
+    savePreferences({ gridType: 'triangle' as any });
+    const loaded = loadPreferences();
+    expect(loaded.gridType).toBe(DEFAULT_SETUP.gridType);
+  });
+
+  it('accepts boolean fogOfWar values', () => {
+    savePreferences({ fogOfWar: true });
+    expect(loadPreferences().fogOfWar).toBe(true);
+    savePreferences({ fogOfWar: false });
+    expect(loadPreferences().fogOfWar).toBe(false);
+  });
+
+  it('rejects non-boolean fogOfWar and uses default', () => {
+    savePreferences({ fogOfWar: 'yes' as any });
+    const loaded = loadPreferences();
+    expect(loaded.fogOfWar).toBe(DEFAULT_SETUP.fogOfWar);
+  });
+
+  it('accepts boolean powerUps values', () => {
+    savePreferences({ powerUps: true });
+    expect(loadPreferences().powerUps).toBe(true);
+    savePreferences({ powerUps: false });
+    expect(loadPreferences().powerUps).toBe(false);
+  });
+
+  it('rejects non-boolean powerUps and uses default', () => {
+    savePreferences({ powerUps: 1 as any });
+    const loaded = loadPreferences();
+    expect(loaded.powerUps).toBe(DEFAULT_SETUP.powerUps);
   });
 });

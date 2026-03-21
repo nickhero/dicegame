@@ -24,7 +24,7 @@ export class UIRenderer {
     // Player info panel background
     const panelBg = this.scene.add.graphics();
     panelBg.fillStyle(0x111122, 0.85);
-    panelBg.fillRoundedRect(panelX - 10, 10, 190, 240, 6);
+    panelBg.fillRoundedRect(panelX - 10, 10, 190, 300, 6);
     this.container.add(panelBg);
 
     // Turn indicator
@@ -58,7 +58,7 @@ export class UIRenderer {
     this.container.add(this.statusText);
 
     // End turn button
-    this.endTurnBtn = this.createEndTurnButton(panelX, 235);
+    this.endTurnBtn = this.createEndTurnButton(panelX, 290);
     this.container.add(this.endTurnBtn);
   }
 

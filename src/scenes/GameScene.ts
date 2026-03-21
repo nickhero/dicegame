@@ -60,6 +60,10 @@ export class GameScene extends Phaser.Scene {
         mapSeed: data.mapSeed ?? DEFAULT_SETUP.mapSeed,
         speed: data.speed ?? DEFAULT_SETUP.speed,
         aiPersonalities: data.aiPersonalities ?? [...DEFAULT_SETUP.aiPersonalities],
+        mapShape: data.mapShape ?? DEFAULT_SETUP.mapShape,
+        gridType: data.gridType ?? DEFAULT_SETUP.gridType,
+        fogOfWar: data.fogOfWar ?? DEFAULT_SETUP.fogOfWar,
+        powerUps: data.powerUps ?? DEFAULT_SETUP.powerUps,
       };
     } else {
       this.setupConfig = { ...DEFAULT_SETUP, aiPersonalities: [...DEFAULT_SETUP.aiPersonalities] };
@@ -81,7 +85,11 @@ export class GameScene extends Phaser.Scene {
     const territoryCount = this.setupConfig.territoryCount;
 
     // Generate map
-    const { territories, adjacency } = generateMap(territoryCount, this.rng);
+    const { territories, adjacency } = generateMap(
+      territoryCount, this.rng,
+      this.setupConfig.gridType,
+      this.setupConfig.mapShape
+    );
 
     // Create players — player 0 is human, rest are AI
     const names = ['AI Red', 'AI Green', 'AI Yellow', 'AI Purple', 'AI Cyan'];
@@ -100,6 +108,11 @@ export class GameScene extends Phaser.Scene {
 
     // Create game state
     this.gameState = createInitialGameState(territories, players, adjacency);
+
+    this.fogOfWarEnabled = this.setupConfig.fogOfWar;
+    if (this.setupConfig.powerUps) {
+      this.gameState.powerUpsEnabled = true;
+    }
 
     // Create renderers
     this.mapRenderer = new MapRenderer(this);

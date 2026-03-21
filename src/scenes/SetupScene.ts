@@ -5,10 +5,12 @@ import {
   loadPreferences,
   savePreferences,
   TERRITORY_PRESETS,
+  DEFAULT_SETUP,
 } from '../game/GameConfig';
 import { ALL_PERSONALITY_TYPES, PersonalityType } from '../game/AIPersonality';
 import { generateMap, assignTerritories, GRID_COLS, GRID_ROWS } from '../game/MapGenerator';
 import { SeededRandom } from '../utils/random';
+import { MapShape } from '../game/MapShapes';
 
 type SpeedOption = GameSetupConfig['speed'];
 
@@ -27,10 +29,22 @@ const SPEED_OPTIONS: { label: string; value: SpeedOption }[] = [
   { label: 'Instant', value: 'instant' },
 ];
 
+const GRID_TYPE_OPTIONS: { label: string; value: 'square' | 'hex' }[] = [
+  { label: 'Square', value: 'square' },
+  { label: 'Hex', value: 'hex' },
+];
+
+const MAP_SHAPE_OPTIONS: { label: string; value: MapShape }[] = [
+  { label: 'Rect', value: 'rectangle' },
+  { label: 'Diamond', value: 'diamond' },
+  { label: 'Ring', value: 'ring' },
+  { label: 'Continent', value: 'continent' },
+];
+
 const PANEL_WIDTH = 750;
 const PREVIEW_WIDTH = 230;
 const PREVIEW_HEIGHT = 180;
-const PANEL_HEIGHT = 520;
+const PANEL_HEIGHT = 680;
 const BTN_COLOR = 0x334466;
 const BTN_ACTIVE = 0x4a90d9;
 const BTN_HOVER = 0x5588bb;
@@ -47,6 +61,10 @@ export class SetupScene extends Phaser.Scene {
   private playerBtns: ButtonGroup[] = [];
   private mapBtns: ButtonGroup[] = [];
   private speedBtns: ButtonGroup[] = [];
+  private gridTypeBtns: ButtonGroup[] = [];
+  private shapeBtns: ButtonGroup[] = [];
+  private fogOfWarBtn!: { bg: Phaser.GameObjects.Graphics; zone: Phaser.GameObjects.Zone; text: Phaser.GameObjects.Text; redraw: (active: boolean) => void };
+  private powerUpsBtn!: { bg: Phaser.GameObjects.Graphics; zone: Phaser.GameObjects.Zone; text: Phaser.GameObjects.Text; redraw: (active: boolean) => void };
   private aiRows: AIRow[] = [];
   private aiContainer!: Phaser.GameObjects.Container;
   private previewGraphics!: Phaser.GameObjects.Graphics;
@@ -139,6 +157,62 @@ export class SetupScene extends Phaser.Scene {
       return { value: opt.value, ...btn };
     });
     this.refreshSpeedBtns();
+
+    rowY += 55;
+
+    // --- Grid Type row ---
+    this.add.text(left + 30, rowY, 'Grid:', LABEL_STYLE);
+    this.gridTypeBtns = GRID_TYPE_OPTIONS.map((opt, i) => {
+      const btn = this.createButton(
+        left + 160 + i * 100, rowY - 5, 80, 30, opt.label,
+        () => {
+          this.config.gridType = opt.value;
+          this.refreshGridTypeBtns();
+          this.updatePreview();
+        },
+      );
+      return { value: opt.value, ...btn };
+    });
+    this.refreshGridTypeBtns();
+
+    rowY += 45;
+
+    // --- Map Shape row ---
+    this.add.text(left + 30, rowY, 'Shape:', LABEL_STYLE);
+    this.shapeBtns = MAP_SHAPE_OPTIONS.map((opt, i) => {
+      const btn = this.createButton(
+        left + 160 + i * 100, rowY - 5, 85, 30, opt.label,
+        () => {
+          this.config.mapShape = opt.value;
+          this.refreshShapeBtns();
+          this.updatePreview();
+        },
+      );
+      return { value: opt.value, ...btn };
+    });
+    this.refreshShapeBtns();
+
+    rowY += 45;
+
+    // --- Options row (toggles) ---
+    this.add.text(left + 30, rowY, 'Options:', LABEL_STYLE);
+    this.fogOfWarBtn = this.createButton(
+      left + 160, rowY - 5, 110, 30, 'Fog of War',
+      () => {
+        this.config.fogOfWar = !this.config.fogOfWar;
+        this.fogOfWarBtn.redraw(this.config.fogOfWar);
+      },
+    );
+    this.fogOfWarBtn.redraw(this.config.fogOfWar);
+
+    this.powerUpsBtn = this.createButton(
+      left + 285, rowY - 5, 110, 30, 'Power-Ups',
+      () => {
+        this.config.powerUps = !this.config.powerUps;
+        this.powerUpsBtn.redraw(this.config.powerUps);
+      },
+    );
+    this.powerUpsBtn.redraw(this.config.powerUps);
 
     rowY += 55;
 
@@ -279,6 +353,18 @@ export class SetupScene extends Phaser.Scene {
     }
   }
 
+  private refreshGridTypeBtns(): void {
+    for (const b of this.gridTypeBtns) {
+      b.redraw(b.value === this.config.gridType);
+    }
+  }
+
+  private refreshShapeBtns(): void {
+    for (const b of this.shapeBtns) {
+      b.redraw(b.value === this.config.mapShape);
+    }
+  }
+
   /* ------------------------------------------------------------------ */
   /*  AI personality rows                                                */
   /* ------------------------------------------------------------------ */
@@ -376,7 +462,7 @@ export class SetupScene extends Phaser.Scene {
       : this.previewSeed;
 
     const rng = new SeededRandom(seed);
-    const { territories } = generateMap(this.config.territoryCount, rng);
+    const { territories } = generateMap(this.config.territoryCount, rng, this.config.gridType, this.config.mapShape);
     assignTerritories(territories, this.config.playerCount, new SeededRandom(seed + 1));
 
     const scaleX = PREVIEW_WIDTH / GRID_COLS;
@@ -392,16 +478,26 @@ export class SetupScene extends Phaser.Scene {
     this.previewGraphics.fillStyle(0x0e1628, 1);
     this.previewGraphics.fillRect(this.previewX, this.previewY, PREVIEW_WIDTH, PREVIEW_HEIGHT);
 
+    const isHex = this.config.gridType === 'hex';
     for (const territory of territories) {
       const color = PLAYER_COLORS[territory.owner % PLAYER_COLORS.length];
       this.previewGraphics.fillStyle(color, 0.85);
       for (const cell of territory.cells) {
-        this.previewGraphics.fillRect(
-          offsetX + cell.x * cellScale,
-          offsetY + cell.y * cellScale,
-          cellScale - 0.5,
-          cellScale - 0.5,
-        );
+        if (isHex) {
+          const radius = cellScale * 0.45;
+          this.previewGraphics.fillCircle(
+            offsetX + cell.x * cellScale + cellScale / 2,
+            offsetY + cell.y * cellScale + cellScale / 2,
+            radius,
+          );
+        } else {
+          this.previewGraphics.fillRect(
+            offsetX + cell.x * cellScale,
+            offsetY + cell.y * cellScale,
+            cellScale - 0.5,
+            cellScale - 0.5,
+          );
+        }
       }
     }
   }

@@ -3,7 +3,7 @@ import { Territory } from '../game/Territory';
 import { PLAYER_COLORS } from '../config';
 
 const DICE_SIZE = 14;
-const STACK_OFFSET = 4; // vertical offset between stacked dice
+const STACK_OFFSET = 5; // vertical offset between stacked dice
 
 /**
  * Generates pixel-art dice textures at boot time.
@@ -91,9 +91,9 @@ export class DiceRenderer {
     const cy = territory.center.y;
     const diceCount = territory.dice;
 
-    // Show up to 4 dice visually, plus a number
-    const visualDice = Math.min(diceCount, 4);
-    const startY = cy - (visualDice - 1) * STACK_OFFSET / 2;
+    const visualDice = diceCount;
+    const stackHeight = (visualDice - 1) * STACK_OFFSET;
+    const startY = cy - stackHeight / 2 - (visualDice > 4 ? 4 : 0);
 
     for (let i = 0; i < visualDice; i++) {
       const face = Math.min(6, Math.max(1, diceCount - i));
