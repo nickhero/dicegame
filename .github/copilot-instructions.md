@@ -132,15 +132,20 @@ style(ui): improve HUD layout spacing
 
 ### Version Bump Workflow
 
-Before committing a `feat` or `fix`, bump the version:
+Version bumps are automated via `commit-and-tag-version`. Do **not** manually edit `src/version.ts` or the version in `package.json`.
 
 ```bash
-npm run version:patch   # for fix, refactor, perf, style
-npm run version:minor   # for feat (new features)
-npm run version:major   # for breaking changes
+npm run release          # auto-detects bump from commit history (feat→minor, fix→patch)
+npm run release:minor    # force minor bump
+npm run release:major    # force major bump
 ```
 
-Include the version file changes in the same commit. The version bump updates both `src/version.ts` and `package.json`.
+This reads all commits since the last git tag, determines the bump type, updates `src/version.ts` + `package.json` + `package-lock.json`, creates a version commit, and tags it.
+
+### Commit Hooks (automated via husky)
+
+- **pre-commit**: runs `npm test` — commit blocked if tests fail
+- **commit-msg**: runs `commitlint` — commit blocked if message doesn't follow conventional format
 
 ### Additional Game Logic Modules
 

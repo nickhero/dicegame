@@ -1,0 +1,19 @@
+{
+  "bumpFiles": [
+    {
+      "filename": "package.json",
+      "type": "json"
+    },
+    {
+      "filename": "package-lock.json",
+      "type": "json"
+    },
+    {
+      "filename": "src/version.ts",
+      "updater": "scripts/version-updater.cjs"
+    }
+  ],
+  "skip": {
+    "changelog": true
+  }
+}

@@ -10,9 +10,11 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "version:patch": "node scripts/bump-version.mjs patch",
-    "version:minor": "node scripts/bump-version.mjs minor",
-    "version:major": "node scripts/bump-version.mjs major"
+    "release": "commit-and-tag-version",
+    "release:minor": "commit-and-tag-version --release-as minor",
+    "release:major": "commit-and-tag-version --release-as major",
+    "prepare": "husky",
+    "prepare": "husky"
   },
   "keywords": [],
   "author": "",
@@ -21,7 +23,11 @@
     "phaser": "^3.90.0"
   },
   "devDependencies": {
+    "@commitlint/cli": "^20.5.0",
+    "@commitlint/config-conventional": "^20.5.0",
     "@types/node": "^25.5.0",
+    "commit-and-tag-version": "^12.7.1",
+    "husky": "^9.1.7",
     "typescript": "^5.9.3",
     "vite": "^5.4.21",
     "vitest": "^2.1.9"
