@@ -1,0 +1,9 @@
+# Skip auto-release for release commits (prevents infinite loop)
+COMMIT_MSG=$(git log -1 --pretty=%B)
+case "$COMMIT_MSG" in
+  chore\(release\)*)
+    exit 0
+    ;;
+esac
+
+npx commit-and-tag-version

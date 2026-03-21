@@ -11,6 +11,7 @@ import { MapRenderer } from '../rendering/MapRenderer';
 import { DiceRenderer, createDiceTextures } from '../rendering/DiceRenderer';
 import { TerritoryEffects } from '../rendering/TerritoryEffects';
 import { EventLog } from '../rendering/EventLog';
+import { UIRenderer } from '../rendering/UIRenderer';
 import { PLAYER_COLORS, GAME_WIDTH, GAME_HEIGHT } from '../config';
 import { Territory } from '../game/Territory';
 
@@ -19,6 +20,7 @@ export class ReplayScene extends Phaser.Scene {
   private rng!: SeededRandom;
   private mapRenderer!: MapRenderer;
   private diceRenderer!: DiceRenderer;
+  private uiRenderer!: UIRenderer;
   private territoryEffects!: TerritoryEffects;
   private eventLog!: EventLog;
 
@@ -79,6 +81,8 @@ export class ReplayScene extends Phaser.Scene {
     // Create renderers
     this.mapRenderer = new MapRenderer(this);
     this.diceRenderer = new DiceRenderer(this);
+    this.uiRenderer = new UIRenderer(this);
+    this.uiRenderer.setSpectatorMode(true);
     this.territoryEffects = new TerritoryEffects(this);
     this.eventLog = new EventLog(this);
 
@@ -325,6 +329,7 @@ export class ReplayScene extends Phaser.Scene {
   private refreshDisplay(): void {
     this.mapRenderer.drawMap(this.gameState, null, [], []);
     this.diceRenderer.drawDiceStacks(this.gameState.territories);
+    this.uiRenderer.update(this.gameState);
   }
 
   private delay(ms: number): Promise<void> {
