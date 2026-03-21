@@ -15,6 +15,30 @@ src/scenes/     ← Phaser scenes. Thin wiring between game logic and renderers.
 src/utils/      ← Pure TypeScript utilities (RNG, graph algorithms).
 ```
 
+### Rendering (src/rendering/)
+
+| File | Purpose |
+|------|---------|
+| `MapRenderer.ts` | Territory map drawing + alliance indicators |
+| `DiceRenderer.ts` | Pixel art dice generation & stacks |
+| `UIRenderer.ts` | HUD, player panel, buttons |
+| `BattleAnimator.ts` | Battle popup animations |
+| `TerritoryEffects.ts` | Visual effects (arrows, glow, pulse, warnings) |
+| `EventLog.ts` | Scrollable event log panel |
+| `SoundManager.ts` | Procedural Web Audio sound effects |
+
+### Scenes (src/scenes/)
+
+| File | Purpose |
+|------|---------|
+| `BootScene.ts` | Loading screen |
+| `MenuScene.ts` | Title, start, history, achievements gallery |
+| `SetupScene.ts` | Game configuration UI |
+| `GameScene.ts` | Main gameplay (~1600 lines) |
+| `GameOverScene.ts` | Victory/defeat + stats + achievements |
+| `ReplayScene.ts` | Game replay playback |
+| `HistoryScene.ts` | Match history browser |
+
 ### Rules for this separation
 
 1. **Never** add `import Phaser` or `import ... from 'phaser'` to any file in `src/game/` or `src/utils/`.
@@ -50,10 +74,22 @@ npm run typecheck  # Type-check only (no emit)
 | `Territory.ts` | Territory data model (cells, center, neighbors, owner, dice) |
 | `Player.ts` | Player data model + factory |
 | `GameState.ts` | Central state + BattleResult types |
-| `MapGenerator.ts` | Grid-based region growing map generation |
+| `MapGenerator.ts` | Grid-based region growing map generation (square + hex) |
+| `MapShapes.ts` | Map shape masks (rectangle, diamond, ring, continent, islands) |
 | `DiceBattle.ts` | Dice rolling and battle resolution |
-| `GameRules.ts` | Attack validation, execution, turn flow, dice distribution |
-| `AIPlayer.ts` | Greedy AI: finds and executes favorable attacks |
+| `GameRules.ts` | Attack validation, execution, turn flow, dice distribution, surrender |
+| `AIPlayer.ts` | AI opponent logic with personality-based strategy |
+| `AIPersonality.ts` | 6 AI personality type definitions + config |
+| `GameConfig.ts` | Game setup config, speed options, localStorage persistence |
+| `GameRecorder.ts` | Action recording for replay & stats, GameAction types |
+| `GameStats.ts` | Live stats tracking + `computeFromRecording()` for history |
+| `GameStateSnapshot.ts` | Snapshot/restore for undo system |
+| `EventFormatter.ts` | GameAction → display text with emoji/colors |
+| `MatchHistory.ts` | Match history localStorage persistence |
+| `PowerUps.ts` | Shield, Charge, Fortify, Reinforce power-ups |
+| `FogOfWar.ts` | Visibility computation for fog of war mode |
+| `Alliance.ts` | Alliance system, reputation, AI diplomacy |
+| `Achievements.ts` | 12 achievements with check functions |
 
 ## Key Patterns
 
@@ -64,14 +100,17 @@ All randomness uses `SeededRandom` from `src/utils/random.ts`. Pass `rng` explic
 `executeAttack()`, `endTurn()`, etc. mutate `GameState` in place. This is intentional for simplicity. Rendering re-reads state after mutations.
 
 ### Map generation
-Uses grid-based region growing (BFS flood-fill from seed points). Produces territories with cells, adjacency graph, and visual centers. Grid is 20×16 cells of 32px each.
+Uses grid-based region growing (BFS flood-fill from seed points). Supports both square and hex grids with configurable map shapes (rectangle, diamond, ring, continent, islands). Produces territories with cells, adjacency graph, and visual centers.
 
 ### AI strategy
-Greedy: finds all attacks with advantage ≥ 1, picks from the best options with slight randomness. Executes multiple attacks per turn until no favorable moves remain.
+Six AI personality types (aggressive, cautious, expansionist, defender, random, balanced) each with distinct attack thresholds, risk tolerance, and expansion priorities. AI is alliance-aware — considers reputation and diplomatic relationships when choosing targets.
+
+### Power-ups, Fog of War & Alliances
+Power-ups (Shield, Charge, Fortify, Reinforce) add tactical depth. Fog of war limits visibility to owned + adjacent territories. The alliance system includes reputation tracking, proposals, betrayal mechanics, and AI diplomacy logic.
 
 ## Testing
 
-Tests live in `tests/` mirroring `src/` structure. All tests run against pure game logic — no DOM, no Phaser.
+Tests live in `tests/` mirroring `src/` structure (355+ tests). All tests run against pure game logic — no DOM, no Phaser.
 
 When modifying game logic, always run `npm run test` to verify. When modifying rendering, run `npm run typecheck` at minimum.
 
@@ -146,18 +185,3 @@ This reads all commits since the last git tag, determines the bump type, updates
 
 - **pre-commit**: runs `npm test` — commit blocked if tests fail
 - **commit-msg**: runs `commitlint` — commit blocked if message doesn't follow conventional format
-
-### Additional Game Logic Modules
-
-| File | Purpose |
-|------|---------|
-| `GameConfig.ts` | Setup config, speed options, localStorage persistence |
-| `GameRecorder.ts` | Central action recording for replay & stats |
-| `GameStats.ts` | Live stats + `computeFromRecording()` for historical |
-| `MatchHistory.ts` | localStorage persistence for match history |
-| `EventFormatter.ts` | Converts GameAction → display text |
-| `PowerUps.ts` | Shield, charge, fortify, reinforce power-ups |
-| `AIPersonality.ts` | AI personality types (aggressive, cautious, etc.) |
-| `FogOfWar.ts` | Visibility computation for fog of war mode |
-| `GameStateSnapshot.ts` | Snapshot/restore for undo |
-| `Surrender.ts` | Surrender logic and territory redistribution |

@@ -465,7 +465,8 @@ describe('Alliance integration with AI', () => {
     let turns = 0;
     let alliancesFormed = 0;
 
-    while (state.phase !== 'gameOver' && turns < 500) {
+    const isGameOver = () => state.phase === ('gameOver' as string);
+    while (!isGameOver() && turns < 500) {
       const cp = state.players[state.currentPlayerIndex];
       if (!cp.isAlive) {
         endTurn(state, rng);
@@ -475,7 +476,7 @@ describe('Alliance integration with AI', () => {
       // Check surrender
       if (shouldAISurrender(state, cp.id)) {
         distributeSurrenderedTerritories(state, cp.id);
-        if (state.phase === 'gameOver') break;
+        if (isGameOver()) break;
         endTurn(state, rng);
         turns++;
         continue;
@@ -486,10 +487,10 @@ describe('Alliance integration with AI', () => {
         const move = selectBestMove(state, rng);
         if (!move || !isValidAttack(move.attackerId, move.defenderId, state)) break;
         executeAttack(move.attackerId, move.defenderId, state, rng);
-        if (state.phase === 'gameOver') break;
+        if (isGameOver()) break;
       }
 
-      if (state.phase === 'gameOver') break;
+      if (isGameOver()) break;
 
       const prevTurn = state.turnNumber;
       endTurn(state, rng);
