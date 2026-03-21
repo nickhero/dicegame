@@ -4,7 +4,7 @@ import { SeededRandom } from '../utils/random';
 import { resolveBattle } from './DiceBattle';
 import { largestContiguousGroup } from '../utils/graph';
 import { MAX_DICE_PER_TERRITORY, MAX_RESERVE_DICE } from './constants';
-import { spawnPowerUp } from './PowerUps';
+import { spawnPowerUp, PowerUpSpawnInfo } from './PowerUps';
 
 /**
  * Check if a territory can attack (has >1 die and has enemy neighbor).
@@ -102,10 +102,14 @@ export function checkWinner(state: GameState): void {
   }
 }
 
+export interface EndTurnResult {
+  spawn: PowerUpSpawnInfo | null;
+}
+
 /**
  * End the current player's turn. Distribute bonus dice and advance turn.
  */
-export function endTurn(state: GameState, rng: SeededRandom): void {
+export function endTurn(state: GameState, rng: SeededRandom): EndTurnResult {
   const player = state.players[state.currentPlayerIndex];
 
   // Calculate bonus: largest contiguous group of territories
@@ -119,7 +123,7 @@ export function endTurn(state: GameState, rng: SeededRandom): void {
   distributeDice(state, player.id, bonus, rng);
 
   // Advance to next alive player
-  advancePlayer(state, rng);
+  return advancePlayer(state, rng);
 }
 
 /**
@@ -165,7 +169,7 @@ export function distributeDice(
  * Advance to the next alive player.
  * Spawns a power-up when a new round begins (turn wraps to player 0).
  */
-export function advancePlayer(state: GameState, rng?: SeededRandom): void {
+export function advancePlayer(state: GameState, rng?: SeededRandom): EndTurnResult {
   const playerCount = state.players.length;
   let next = (state.currentPlayerIndex + 1) % playerCount;
 
@@ -176,11 +180,12 @@ export function advancePlayer(state: GameState, rng?: SeededRandom): void {
     safety++;
   }
 
+  let spawn: PowerUpSpawnInfo | null = null;
   const isNewRound = next <= state.currentPlayerIndex;
   if (isNewRound) {
     state.turnNumber++;
     if (rng) {
-      spawnPowerUp(state, rng);
+      spawn = spawnPowerUp(state, rng);
     }
   }
 
@@ -188,6 +193,7 @@ export function advancePlayer(state: GameState, rng?: SeededRandom): void {
   state.phase = 'selectingAttacker';
   state.selectedTerritoryId = null;
   state.lastBattle = null;
+  return { spawn };
 }
 
 /**

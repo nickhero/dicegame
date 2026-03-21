@@ -42,7 +42,8 @@ export type GameAction =
   | { type: 'surrender'; playerId: number }
   | { type: 'elimination'; playerId: number; eliminatedBy: number }
   | { type: 'fortify'; fromId: number; toId: number; diceCount: number; playerId: number }
-  | { type: 'reinforce'; territoryId: number; playerId: number };
+  | { type: 'reinforce'; territoryId: number; playerId: number }
+  | { type: 'powerUpSpawn'; territoryId: number; powerUpType: PowerUpType; ownerId: number };
 
 export interface TurnRecord {
   turnNumber: number;

@@ -57,8 +57,11 @@ function simulateGame(seed: number, playerCount = 4, powerUps = true): SimResult
     const currentPlayer = state.players[state.currentPlayerIndex];
 
     if (!currentPlayer.isAlive) {
-      endTurn(state, rng);
+      const { spawn } = endTurn(state, rng);
       recorder.recordAction({ type: 'endTurn', playerId: currentPlayer.id, bonusDice: 0 });
+      if (spawn) {
+        recorder.recordAction({ type: 'powerUpSpawn', territoryId: spawn.territoryId, powerUpType: spawn.powerUpType, ownerId: spawn.ownerId });
+      }
       recorder.endCurrentTurn();
       recorder.startTurn(state.turnNumber, state.currentPlayerIndex);
       continue;
@@ -71,8 +74,11 @@ function simulateGame(seed: number, playerCount = 4, powerUps = true): SimResult
       distributeSurrenderedTerritories(state, currentPlayer.id);
       if ((state.phase as string) === 'gameOver') break;
       recorder.recordAction({ type: 'endTurn', playerId: currentPlayer.id, bonusDice: 0 });
+      const { spawn } = endTurn(state, rng);
+      if (spawn) {
+        recorder.recordAction({ type: 'powerUpSpawn', territoryId: spawn.territoryId, powerUpType: spawn.powerUpType, ownerId: spawn.ownerId });
+      }
       recorder.endCurrentTurn();
-      endTurn(state, rng);
       recorder.startTurn(state.turnNumber, state.currentPlayerIndex);
       continue;
     }
@@ -126,8 +132,11 @@ function simulateGame(seed: number, playerCount = 4, powerUps = true): SimResult
     if ((state.phase as string) === 'gameOver') break;
 
     // End turn
-    endTurn(state, rng);
+    const { spawn } = endTurn(state, rng);
     recorder.recordAction({ type: 'endTurn', playerId: currentPlayer.id, bonusDice: 0 });
+    if (spawn) {
+      recorder.recordAction({ type: 'powerUpSpawn', territoryId: spawn.territoryId, powerUpType: spawn.powerUpType, ownerId: spawn.ownerId });
+    }
     recorder.endCurrentTurn();
     recorder.startTurn(state.turnNumber, state.currentPlayerIndex);
 
@@ -262,5 +271,29 @@ describe('Full game simulation', () => {
     for (const turn of rec.turns) {
       expect(turn.actions.length).toBeGreaterThan(0);
     }
+  });
+
+  it('records power-up spawns in the recording', () => {
+    // Run a few seeds to find one with spawns
+    let found = false;
+    for (const seed of [42, 123, 7777, 99999]) {
+      const result = simulateGame(seed, 4, true);
+      const spawns = result.recording.turns
+        .flatMap((t) => t.actions)
+        .filter((a) => a.type === 'powerUpSpawn');
+      if (spawns.length > 0) {
+        const spawn = spawns[0] as { type: 'powerUpSpawn'; territoryId: number; powerUpType: string; ownerId: number };
+        expect(typeof spawn.territoryId).toBe('number');
+        expect(typeof spawn.powerUpType).toBe('string');
+        expect(typeof spawn.ownerId).toBe('number');
+
+        // Text log should mention the spawn
+        const textLog = generateTextLog(result.recording);
+        expect(textLog).toContain('spawned');
+        found = true;
+        break;
+      }
+    }
+    expect(found).toBe(true);
   });
 });

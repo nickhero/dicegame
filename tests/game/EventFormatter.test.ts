@@ -95,6 +95,15 @@ describe('formatAction', () => {
     expect(event.color).toBe(0xd94a4a);
   });
 
+  it('formats power-up spawn', () => {
+    const action: GameAction = { type: 'powerUpSpawn', territoryId: 4, powerUpType: 'shield', ownerId: 1 };
+    const event = formatAction(action, playerNames, playerColors)!;
+    expect(event.text).toContain('shield');
+    expect(event.text).toContain('T4');
+    expect(event.text).toContain('Bob');
+    expect(event.color).toBe(0xffcc00);
+  });
+
   it('uses fallback name and color for unknown player id', () => {
     const action: GameAction = { type: 'surrender', playerId: 99 };
     const event = formatAction(action, playerNames, playerColors)!;

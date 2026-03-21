@@ -65,6 +65,13 @@ export function formatAction(
         color: playerColors[action.playerId] ?? 0xcccccc,
       };
     }
+    case 'powerUpSpawn': {
+      const ownerName = playerNames[action.ownerId] ?? '?';
+      return {
+        text: `⚡ ${action.powerUpType} spawned on T${action.territoryId} (${ownerName})`,
+        color: 0xffcc00,
+      };
+    }
   }
 }
 

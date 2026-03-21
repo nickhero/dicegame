@@ -40,17 +40,24 @@ const MAX_POWER_UPS_ON_MAP = 4;
  * Spawn a power-up on a random territory that doesn't already have one.
  * Respects the maximum number of power-ups on the map.
  */
-export function spawnPowerUp(state: GameState, rng: SeededRandom): void {
-  if (!state.powerUpsEnabled) return;
+export interface PowerUpSpawnInfo {
+  territoryId: number;
+  powerUpType: PowerUpType;
+  ownerId: number;
+}
+
+export function spawnPowerUp(state: GameState, rng: SeededRandom): PowerUpSpawnInfo | null {
+  if (!state.powerUpsEnabled) return null;
 
   const currentCount = state.territories.filter((t) => t.powerUp != null).length;
-  if (currentCount >= MAX_POWER_UPS_ON_MAP) return;
+  if (currentCount >= MAX_POWER_UPS_ON_MAP) return null;
 
   const candidates = state.territories.filter((t) => t.powerUp == null);
-  if (candidates.length === 0) return;
+  if (candidates.length === 0) return null;
 
   const territory = rng.pick(candidates);
   territory.powerUp = rng.pick(ALL_POWER_UP_TYPES);
+  return { territoryId: territory.id, powerUpType: territory.powerUp, ownerId: territory.owner };
 }
 
 /**

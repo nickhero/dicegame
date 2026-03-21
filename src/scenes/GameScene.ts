@@ -868,6 +868,19 @@ export class GameScene extends Phaser.Scene {
     return snapshot;
   }
 
+  private logSpawn(spawn: import('../game/PowerUps').PowerUpSpawnInfo | null): void {
+    if (!spawn) return;
+    const ownerName = this.gameState.players[spawn.ownerId].name;
+    this.eventLog.addEvent(
+      `⚡ ${spawn.powerUpType} spawned on T${spawn.territoryId} (${ownerName})`,
+      0xffcc00,
+    );
+    this.gameRecorder.recordAction({
+      type: 'powerUpSpawn', territoryId: spawn.territoryId,
+      powerUpType: spawn.powerUpType, ownerId: spawn.ownerId,
+    });
+  }
+
   private showDiceDistribution(
     before: Map<number, number>,
     after: Map<number, number>,
@@ -930,7 +943,9 @@ export class GameScene extends Phaser.Scene {
     const diceBefore = this.snapshotDice(player.id);
 
     // Execute end turn logic first to compute bonus
-    endTurn(this.gameState, this.rng);
+    const { spawn } = endTurn(this.gameState, this.rng);
+
+    this.logSpawn(spawn);
 
     const diceAfter = this.snapshotDice(player.id);
     let bonus = 0;
@@ -1181,7 +1196,9 @@ export class GameScene extends Phaser.Scene {
       // Track dice before endTurn for AI bonus logging
       const aiDiceBefore = this.snapshotDice(currentPlayer.id);
 
-      endTurn(this.gameState, this.rng);
+      const { spawn: aiSpawn } = endTurn(this.gameState, this.rng);
+
+      this.logSpawn(aiSpawn);
 
       const aiDiceAfter = this.snapshotDice(currentPlayer.id);
       let aiBonus = 0;
@@ -1300,8 +1317,11 @@ export class GameScene extends Phaser.Scene {
       const currentPlayer = this.gameState.players[this.gameState.currentPlayerIndex];
 
       if (!currentPlayer.isAlive) {
-        endTurn(this.gameState, this.rng);
+        const { spawn } = endTurn(this.gameState, this.rng);
         this.gameRecorder.recordAction({ type: 'endTurn', playerId: currentPlayer.id, bonusDice: 0 });
+        if (spawn) {
+          this.gameRecorder.recordAction({ type: 'powerUpSpawn', territoryId: spawn.territoryId, powerUpType: spawn.powerUpType, ownerId: spawn.ownerId });
+        }
         this.gameRecorder.endCurrentTurn();
         this.gameRecorder.startTurn(this.gameState.turnNumber, this.gameState.currentPlayerIndex);
         continue;
@@ -1313,8 +1333,11 @@ export class GameScene extends Phaser.Scene {
         distributeSurrenderedTerritories(this.gameState, currentPlayer.id);
         if ((this.gameState.phase as string) === 'gameOver') break;
         this.gameRecorder.recordAction({ type: 'endTurn', playerId: currentPlayer.id, bonusDice: 0 });
+        const { spawn } = endTurn(this.gameState, this.rng);
+        if (spawn) {
+          this.gameRecorder.recordAction({ type: 'powerUpSpawn', territoryId: spawn.territoryId, powerUpType: spawn.powerUpType, ownerId: spawn.ownerId });
+        }
         this.gameRecorder.endCurrentTurn();
-        endTurn(this.gameState, this.rng);
         this.gameRecorder.startTurn(this.gameState.turnNumber, this.gameState.currentPlayerIndex);
         continue;
       }
@@ -1370,7 +1393,7 @@ export class GameScene extends Phaser.Scene {
 
       // End turn & distribute bonus dice
       const diceBefore = this.snapshotDice(currentPlayer.id);
-      endTurn(this.gameState, this.rng);
+      const { spawn: simSpawn } = endTurn(this.gameState, this.rng);
       const diceAfter = this.snapshotDice(currentPlayer.id);
       let bonus = 0;
       diceAfter.forEach((count, id) => {
@@ -1378,6 +1401,9 @@ export class GameScene extends Phaser.Scene {
       });
 
       this.gameRecorder.recordAction({ type: 'endTurn', playerId: currentPlayer.id, bonusDice: Math.max(0, bonus) });
+      if (simSpawn) {
+        this.gameRecorder.recordAction({ type: 'powerUpSpawn', territoryId: simSpawn.territoryId, powerUpType: simSpawn.powerUpType, ownerId: simSpawn.ownerId });
+      }
       this.gameRecorder.endCurrentTurn();
       this.gameStats.recordTurnStart(this.gameState);
       this.gameRecorder.startTurn(this.gameState.turnNumber, this.gameState.currentPlayerIndex);
