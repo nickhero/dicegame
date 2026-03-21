@@ -10,7 +10,6 @@ export interface GameSetupConfig {
   speed: 'normal' | 'fast' | 'instant';
   aiPersonalities: (PersonalityType | 'random')[];  // one per AI slot (max 5)
   mapShape: MapShape;           // default: 'rectangle'
-  gridType: 'square' | 'hex';   // default: 'square'
   fogOfWar: boolean;            // default: false
   powerUps: boolean;            // default: false
 }
@@ -22,7 +21,6 @@ export const DEFAULT_SETUP: GameSetupConfig = {
   speed: 'normal',
   aiPersonalities: ['random', 'random', 'random', 'random', 'random'],
   mapShape: 'rectangle',
-  gridType: 'square',
   fogOfWar: false,
   powerUps: false,
 };
@@ -66,7 +64,6 @@ export function loadPreferences(): GameSetupConfig {
       speed: isValidSpeed(parsed.speed) ? parsed.speed : DEFAULT_SETUP.speed,
       aiPersonalities: isValidPersonalities(parsed.aiPersonalities) ? parsed.aiPersonalities : [...DEFAULT_SETUP.aiPersonalities],
       mapShape: isValidMapShape(parsed.mapShape) ? parsed.mapShape : DEFAULT_SETUP.mapShape,
-      gridType: isValidGridType(parsed.gridType) ? parsed.gridType : DEFAULT_SETUP.gridType,
       fogOfWar: typeof parsed.fogOfWar === 'boolean' ? parsed.fogOfWar : DEFAULT_SETUP.fogOfWar,
       powerUps: typeof parsed.powerUps === 'boolean' ? parsed.powerUps : DEFAULT_SETUP.powerUps,
     };
@@ -100,8 +97,4 @@ const VALID_MAP_SHAPES = new Set<string>(['rectangle', 'diamond', 'ring', 'conti
 
 function isValidMapShape(v: unknown): v is MapShape {
   return typeof v === 'string' && VALID_MAP_SHAPES.has(v);
-}
-
-function isValidGridType(v: unknown): v is 'square' | 'hex' {
-  return v === 'square' || v === 'hex';
 }

@@ -61,7 +61,6 @@ export class GameScene extends Phaser.Scene {
         speed: data.speed ?? DEFAULT_SETUP.speed,
         aiPersonalities: data.aiPersonalities ?? [...DEFAULT_SETUP.aiPersonalities],
         mapShape: data.mapShape ?? DEFAULT_SETUP.mapShape,
-        gridType: data.gridType ?? DEFAULT_SETUP.gridType,
         fogOfWar: data.fogOfWar ?? DEFAULT_SETUP.fogOfWar,
         powerUps: data.powerUps ?? DEFAULT_SETUP.powerUps,
       };
@@ -75,10 +74,15 @@ export class GameScene extends Phaser.Scene {
     // Generate dice textures
     createDiceTextures(this);
 
-    // Initialize RNG
-    const seed = this.setupConfig.mapSeed
-      ? hashString(this.setupConfig.mapSeed)
-      : Date.now();
+    // Initialize RNG — numeric seeds are used directly, string seeds are hashed
+    const rawSeed = this.setupConfig.mapSeed;
+    let seed: number;
+    if (rawSeed) {
+      const parsed = Number(rawSeed);
+      seed = Number.isFinite(parsed) && parsed > 0 ? parsed : hashString(rawSeed);
+    } else {
+      seed = Date.now();
+    }
     this.rng = new SeededRandom(seed);
 
     const playerCount = this.setupConfig.playerCount;
@@ -87,7 +91,7 @@ export class GameScene extends Phaser.Scene {
     // Generate map
     const { territories, adjacency } = generateMap(
       territoryCount, this.rng,
-      this.setupConfig.gridType,
+      'square',
       this.setupConfig.mapShape
     );
 
@@ -728,7 +732,17 @@ export class GameScene extends Phaser.Scene {
         distributeSurrenderedTerritories(this.gameState, currentPlayer.id);
         this.refreshDisplay();
 
-        if (this.gameState.phase === 'gameOver') {
+        if ((this.gameState.phase as string) === 'gameOver') {
+          this.time.delayedCall(this.getDelay(1000), () => this.handleGameOver());
+          this.isProcessing = false;
+          return;
+        }
+
+        // Advance past the now-dead surrendered player
+        endTurn(this.gameState, this.rng);
+        this.gameStats.recordTurnStart(this.gameState);
+
+        if ((this.gameState.phase as string) === 'gameOver') {
           this.time.delayedCall(this.getDelay(1000), () => this.handleGameOver());
           this.isProcessing = false;
           return;
@@ -741,6 +755,7 @@ export class GameScene extends Phaser.Scene {
           await this.processAITurns();
         } else {
           this.isProcessing = false;
+          this.soundManager.playTurnStart();
           this.uiRenderer.setStatus('Your turn! Select a territory to attack from.');
           this.refreshDisplay();
         }

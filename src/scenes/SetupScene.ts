@@ -29,11 +29,6 @@ const SPEED_OPTIONS: { label: string; value: SpeedOption }[] = [
   { label: 'Instant', value: 'instant' },
 ];
 
-const GRID_TYPE_OPTIONS: { label: string; value: 'square' | 'hex' }[] = [
-  { label: 'Square', value: 'square' },
-  { label: 'Hex', value: 'hex' },
-];
-
 const MAP_SHAPE_OPTIONS: { label: string; value: MapShape }[] = [
   { label: 'Rect', value: 'rectangle' },
   { label: 'Diamond', value: 'diamond' },
@@ -44,7 +39,7 @@ const MAP_SHAPE_OPTIONS: { label: string; value: MapShape }[] = [
 const PANEL_WIDTH = 750;
 const PREVIEW_WIDTH = 230;
 const PREVIEW_HEIGHT = 180;
-const PANEL_HEIGHT = 680;
+const PANEL_HEIGHT = 640;
 const BTN_COLOR = 0x334466;
 const BTN_ACTIVE = 0x4a90d9;
 const BTN_HOVER = 0x5588bb;
@@ -61,7 +56,6 @@ export class SetupScene extends Phaser.Scene {
   private playerBtns: ButtonGroup[] = [];
   private mapBtns: ButtonGroup[] = [];
   private speedBtns: ButtonGroup[] = [];
-  private gridTypeBtns: ButtonGroup[] = [];
   private shapeBtns: ButtonGroup[] = [];
   private fogOfWarBtn!: { bg: Phaser.GameObjects.Graphics; zone: Phaser.GameObjects.Zone; text: Phaser.GameObjects.Text; redraw: (active: boolean) => void };
   private powerUpsBtn!: { bg: Phaser.GameObjects.Graphics; zone: Phaser.GameObjects.Zone; text: Phaser.GameObjects.Text; redraw: (active: boolean) => void };
@@ -159,23 +153,6 @@ export class SetupScene extends Phaser.Scene {
     this.refreshSpeedBtns();
 
     rowY += 55;
-
-    // --- Grid Type row ---
-    this.add.text(left + 30, rowY, 'Grid:', LABEL_STYLE);
-    this.gridTypeBtns = GRID_TYPE_OPTIONS.map((opt, i) => {
-      const btn = this.createButton(
-        left + 160 + i * 100, rowY - 5, 80, 30, opt.label,
-        () => {
-          this.config.gridType = opt.value;
-          this.refreshGridTypeBtns();
-          this.updatePreview();
-        },
-      );
-      return { value: opt.value, ...btn };
-    });
-    this.refreshGridTypeBtns();
-
-    rowY += 45;
 
     // --- Map Shape row ---
     this.add.text(left + 30, rowY, 'Shape:', LABEL_STYLE);
@@ -353,12 +330,6 @@ export class SetupScene extends Phaser.Scene {
     }
   }
 
-  private refreshGridTypeBtns(): void {
-    for (const b of this.gridTypeBtns) {
-      b.redraw(b.value === this.config.gridType);
-    }
-  }
-
   private refreshShapeBtns(): void {
     for (const b of this.shapeBtns) {
       b.redraw(b.value === this.config.mapShape);
@@ -462,7 +433,7 @@ export class SetupScene extends Phaser.Scene {
       : this.previewSeed;
 
     const rng = new SeededRandom(seed);
-    const { territories } = generateMap(this.config.territoryCount, rng, this.config.gridType, this.config.mapShape);
+    const { territories } = generateMap(this.config.territoryCount, rng, 'square', this.config.mapShape);
     assignTerritories(territories, this.config.playerCount, new SeededRandom(seed + 1));
 
     const scaleX = PREVIEW_WIDTH / GRID_COLS;
@@ -478,26 +449,16 @@ export class SetupScene extends Phaser.Scene {
     this.previewGraphics.fillStyle(0x0e1628, 1);
     this.previewGraphics.fillRect(this.previewX, this.previewY, PREVIEW_WIDTH, PREVIEW_HEIGHT);
 
-    const isHex = this.config.gridType === 'hex';
     for (const territory of territories) {
       const color = PLAYER_COLORS[territory.owner % PLAYER_COLORS.length];
       this.previewGraphics.fillStyle(color, 0.85);
       for (const cell of territory.cells) {
-        if (isHex) {
-          const radius = cellScale * 0.45;
-          this.previewGraphics.fillCircle(
-            offsetX + cell.x * cellScale + cellScale / 2,
-            offsetY + cell.y * cellScale + cellScale / 2,
-            radius,
-          );
-        } else {
-          this.previewGraphics.fillRect(
-            offsetX + cell.x * cellScale,
-            offsetY + cell.y * cellScale,
-            cellScale - 0.5,
-            cellScale - 0.5,
-          );
-        }
+        this.previewGraphics.fillRect(
+          offsetX + cell.x * cellScale,
+          offsetY + cell.y * cellScale,
+          cellScale - 0.5,
+          cellScale - 0.5,
+        );
       }
     }
   }
@@ -510,6 +471,11 @@ export class SetupScene extends Phaser.Scene {
     // Trim personalities to match player count
     const slotCount = this.config.playerCount - 1;
     this.config.aiPersonalities = this.config.aiPersonalities.slice(0, slotCount);
+
+    // Pass the preview seed so the game generates the same map the player saw
+    if (!this.config.mapSeed) {
+      this.config.mapSeed = String(this.previewSeed);
+    }
 
     savePreferences(this.config);
     this.scene.start('GameScene', this.config);
