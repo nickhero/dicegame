@@ -213,6 +213,12 @@ export class GameScene extends Phaser.Scene {
     this.refreshDisplay();
 
     if (this.spectatorMode) {
+      // Instant spectate: run entire simulation with no UI, jump to results
+      if (this.speed === 'instant') {
+        this.runInstantSimulation();
+        return;
+      }
+
       this.spectatorLabel = this.add.text(GAME_WIDTH / 2, 15, '👁 SPECTATING (Space to pause)', {
         fontSize: '14px',
         color: '#ffcc00',
@@ -1266,6 +1272,101 @@ export class GameScene extends Phaser.Scene {
       ease: 'Power1',
       onComplete: () => notification.destroy(),
     });
+  }
+
+  /**
+   * Run the entire game with pure game logic — no rendering, no delays.
+   * Used for instant spectate mode. Records everything for replay.
+   */
+  private runInstantSimulation(): void {
+    const MAX_TURNS = 500;
+    let turnCount = 0;
+
+    while (this.gameState.phase !== 'gameOver' && turnCount < MAX_TURNS) {
+      const currentPlayer = this.gameState.players[this.gameState.currentPlayerIndex];
+
+      if (!currentPlayer.isAlive) {
+        endTurn(this.gameState, this.rng);
+        this.gameRecorder.recordAction({ type: 'endTurn', playerId: currentPlayer.id, bonusDice: 0 });
+        this.gameRecorder.endCurrentTurn();
+        this.gameRecorder.startTurn(this.gameState.turnNumber, this.gameState.currentPlayerIndex);
+        continue;
+      }
+
+      // Check surrender
+      if (shouldAISurrender(this.gameState, currentPlayer.id)) {
+        this.gameRecorder.recordAction({ type: 'surrender', playerId: currentPlayer.id });
+        distributeSurrenderedTerritories(this.gameState, currentPlayer.id);
+        if ((this.gameState.phase as string) === 'gameOver') break;
+        this.gameRecorder.recordAction({ type: 'endTurn', playerId: currentPlayer.id, bonusDice: 0 });
+        this.gameRecorder.endCurrentTurn();
+        endTurn(this.gameState, this.rng);
+        this.gameRecorder.startTurn(this.gameState.turnNumber, this.gameState.currentPlayerIndex);
+        continue;
+      }
+
+      // Use AI power-ups
+      if (this.gameState.powerUpsEnabled) {
+        useAIPowerUps(this.gameState);
+      }
+
+      // Execute attacks
+      const personality = PERSONALITIES[currentPlayer.personality ?? 'balanced'];
+      const maxAttacks = Math.min(personality.maxAttacksPerTurn, 50);
+      const aiVisibleSet = this.fogOfWarEnabled
+        ? getVisibleTerritories(this.gameState, currentPlayer.id)
+        : undefined;
+
+      const aliveBeforeAttacks = new Set(
+        this.gameState.players.filter((p) => p.isAlive).map((p) => p.id)
+      );
+
+      for (let i = 0; i < maxAttacks; i++) {
+        const move = selectBestMove(this.gameState, this.rng, undefined, aiVisibleSet);
+        if (!move) break;
+        if (!isValidAttack(move.attackerId, move.defenderId, this.gameState)) break;
+
+        const attackerPlayerId = this.gameState.currentPlayerIndex;
+        const defenderPlayerId = this.gameState.territories[move.defenderId].owner;
+        const result = executeAttack(move.attackerId, move.defenderId, this.gameState, this.rng);
+        this.gameStats.recordAttack(attackerPlayerId, defenderPlayerId, result, this.gameState);
+        this.gameRecorder.recordAction({
+          type: 'attack', attackerId: move.attackerId, defenderId: move.defenderId,
+          attackerPlayerId, defenderPlayerId, result,
+        });
+
+        if ((this.gameState.phase as string) === 'gameOver') break;
+      }
+
+      // Record eliminations
+      for (const p of this.gameState.players) {
+        if (aliveBeforeAttacks.has(p.id) && !p.isAlive) {
+          this.gameRecorder.recordAction({
+            type: 'elimination', playerId: p.id, eliminatedBy: currentPlayer.id,
+          });
+        }
+      }
+
+      if ((this.gameState.phase as string) === 'gameOver') break;
+
+      // End turn & distribute bonus dice
+      const diceBefore = this.snapshotDice(currentPlayer.id);
+      endTurn(this.gameState, this.rng);
+      const diceAfter = this.snapshotDice(currentPlayer.id);
+      let bonus = 0;
+      diceAfter.forEach((count, id) => {
+        bonus += count - (diceBefore.get(id) ?? 0);
+      });
+
+      this.gameRecorder.recordAction({ type: 'endTurn', playerId: currentPlayer.id, bonusDice: Math.max(0, bonus) });
+      this.gameRecorder.endCurrentTurn();
+      this.gameStats.recordTurnStart(this.gameState);
+      this.gameRecorder.startTurn(this.gameState.turnNumber, this.gameState.currentPlayerIndex);
+
+      turnCount++;
+    }
+
+    this.handleGameOver();
   }
 
   private handleGameOver(): void {
