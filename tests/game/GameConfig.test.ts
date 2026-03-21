@@ -96,7 +96,8 @@ describe('savePreferences / loadPreferences', () => {
     };
     savePreferences(custom);
     const loaded = loadPreferences();
-    expect(loaded).toEqual(custom);
+    // mapSeed is intentionally never restored (always fresh per game)
+    expect(loaded).toEqual({ ...custom, mapSeed: null });
   });
 
   it('merges partial overrides with defaults', () => {

@@ -62,7 +62,7 @@ export function loadPreferences(): GameSetupConfig {
     return {
       playerCount: isValidPlayerCount(parsed.playerCount) ? parsed.playerCount : DEFAULT_SETUP.playerCount,
       territoryCount: isValidTerritoryCount(parsed.territoryCount) ? parsed.territoryCount : DEFAULT_SETUP.territoryCount,
-      mapSeed: typeof parsed.mapSeed === 'string' ? parsed.mapSeed : DEFAULT_SETUP.mapSeed,
+      mapSeed: null, // never persist — always generate fresh
       speed: isValidSpeed(parsed.speed) ? parsed.speed : DEFAULT_SETUP.speed,
       aiPersonalities: isValidPersonalities(parsed.aiPersonalities) ? parsed.aiPersonalities : [...DEFAULT_SETUP.aiPersonalities],
       mapShape: isValidMapShape(parsed.mapShape) ? parsed.mapShape : DEFAULT_SETUP.mapShape,
