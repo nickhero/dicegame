@@ -9,6 +9,7 @@ export class MapRenderer {
   private graphics: Phaser.GameObjects.Graphics;
   private highlightGraphics: Phaser.GameObjects.Graphics;
   private territoryZones: Map<number, Phaser.GameObjects.Zone> = new Map();
+  private powerUpLabels: Phaser.GameObjects.Container[] = [];
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -221,17 +222,41 @@ export class MapRenderer {
     reinforce: 0xffcc00,
   };
 
+  private static readonly POWER_UP_SYMBOLS: Record<string, string> = {
+    shield: '🛡',
+    charge: '⚡',
+    fortify: '🏰',
+    reinforce: '➕',
+  };
+
   private drawPowerUpIcons(state: GameState): void {
-    const radius = 6;
+    // Destroy previous labels
+    for (const label of this.powerUpLabels) label.destroy();
+    this.powerUpLabels = [];
+
     for (const territory of state.territories) {
       if (!territory.powerUp) continue;
       const color = MapRenderer.POWER_UP_COLORS[territory.powerUp] ?? 0xffffff;
+      const symbol = MapRenderer.POWER_UP_SYMBOLS[territory.powerUp] ?? '?';
       const cx = territory.center.x;
-      const cy = territory.center.y - CELL_SIZE * 0.6;
-      this.graphics.fillStyle(color, 1.0);
-      this.graphics.fillCircle(cx, cy, radius);
-      this.graphics.lineStyle(1, 0x000000, 0.6);
-      this.graphics.strokeCircle(cx, cy, radius);
+      const cy = territory.center.y + 24;
+
+      const container = this.scene.add.container(cx, cy).setDepth(25);
+
+      const bg = this.scene.add.graphics();
+      bg.fillStyle(color, 0.9);
+      bg.fillRoundedRect(-10, -8, 20, 16, 4);
+      bg.lineStyle(1, 0x000000, 0.5);
+      bg.strokeRoundedRect(-10, -8, 20, 16, 4);
+      container.add(bg);
+
+      const text = this.scene.add.text(0, 0, symbol, {
+        fontSize: '11px',
+        fontFamily: 'monospace',
+      }).setOrigin(0.5);
+      container.add(text);
+
+      this.powerUpLabels.push(container);
     }
   }
 
@@ -317,6 +342,8 @@ export class MapRenderer {
   destroy(): void {
     this.graphics.destroy();
     this.highlightGraphics.destroy();
+    for (const label of this.powerUpLabels) label.destroy();
+    this.powerUpLabels = [];
     this.clearZones();
   }
 }

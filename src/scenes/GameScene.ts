@@ -12,10 +12,11 @@ import {
   shouldAISurrender,
   distributeSurrenderedTerritories,
 } from '../game/GameRules';
-import { selectBestMove } from '../game/AIPlayer';
+import { selectBestMove, useAIPowerUps } from '../game/AIPlayer';
 import { PersonalityType, getRandomPersonality, PERSONALITIES } from '../game/AIPersonality';
 import { SPEED_CONFIGS, GameSetupConfig, DEFAULT_SETUP } from '../game/GameConfig';
 import { getVisibleTerritories } from '../game/FogOfWar';
+import { useFortify, useReinforce, POWER_UPS } from '../game/PowerUps';
 import { SeededRandom } from '../utils/random';
 import { MapRenderer } from '../rendering/MapRenderer';
 import { DiceRenderer, createDiceTextures } from '../rendering/DiceRenderer';
@@ -47,6 +48,9 @@ export class GameScene extends Phaser.Scene {
   private speed: GameSetupConfig['speed'] = 'normal';
   private fogOfWarEnabled = false;
   private setupConfig!: GameSetupConfig;
+  private powerUpPopup: Phaser.GameObjects.Container | null = null;
+  private fortifyMode = false;
+  private fortifySourceId: number | null = null;
 
   constructor() {
     super('GameScene');
@@ -220,8 +224,13 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    // Escape — deselect territory
+    // Escape — deselect territory / cancel fortify / dismiss popup
     if (key === 'ESCAPE') {
+      if (this.fortifyMode) {
+        this.cancelFortify();
+        return;
+      }
+      this.dismissPowerUpPopup();
       if (this.gameState.phase === 'selectingDefender') {
         this.gameState.phase = 'selectingAttacker';
         this.gameState.selectedTerritoryId = null;
@@ -460,6 +469,12 @@ export class GameScene extends Phaser.Scene {
     const currentPlayer = this.gameState.players[this.gameState.currentPlayerIndex];
     if (!currentPlayer.isHuman) return;
 
+    // Fortify mode: selecting target territory
+    if (this.fortifyMode) {
+      this.handleFortifyTarget(territoryId);
+      return;
+    }
+
     if (this.gameState.phase === 'selectingAttacker') {
       this.handleAttackerSelection(territoryId);
     } else if (this.gameState.phase === 'selectingDefender') {
@@ -472,6 +487,12 @@ export class GameScene extends Phaser.Scene {
 
     if (territory.owner !== this.gameState.currentPlayerIndex) {
       this.uiRenderer.setStatus('That\'s not your territory!');
+      return;
+    }
+
+    // If territory has a manual power-up, show popup
+    if (territory.powerUp === 'reinforce' || territory.powerUp === 'fortify') {
+      this.showPowerUpPopup(territory);
       return;
     }
 
@@ -589,6 +610,116 @@ export class GameScene extends Phaser.Scene {
     this.gameState.selectedTerritoryId = null;
     this.isProcessing = false;
     this.refreshDisplay();
+  }
+
+  // ─── Power-Up Activation ──────────────────────────────────
+
+  private showPowerUpPopup(territory: import('../game/Territory').Territory): void {
+    this.dismissPowerUpPopup();
+
+    const powerUp = POWER_UPS[territory.powerUp!];
+    const cx = territory.center.x;
+    const cy = territory.center.y - 45;
+    const canAttack = canAttackFrom(territory.id, this.gameState);
+
+    this.powerUpPopup = this.add.container(cx, cy).setDepth(200);
+
+    const w = 160;
+    const h = canAttack ? 80 : 55;
+    const bg = this.add.graphics();
+    bg.fillStyle(0x111133, 0.95);
+    bg.fillRoundedRect(-w / 2, -h / 2, w, h, 6);
+    bg.lineStyle(2, 0x6688cc, 1);
+    bg.strokeRoundedRect(-w / 2, -h / 2, w, h, 6);
+    this.powerUpPopup.add(bg);
+
+    // Power-up use button
+    const useLabel = `Use ${powerUp.label}`;
+    const useY = canAttack ? -12 : 0;
+    const useBtn = this.createDialogButton(0, useY, useLabel, 0x336633, 0x44aa44, () => {
+      this.dismissPowerUpPopup();
+      if (territory.powerUp === 'reinforce') {
+        this.activateReinforce(territory.id);
+      } else if (territory.powerUp === 'fortify') {
+        this.activateFortify(territory.id);
+      }
+    });
+    this.powerUpPopup.add(useBtn);
+
+    // Attack button (if territory can also attack)
+    if (canAttack) {
+      const atkBtn = this.createDialogButton(0, 22, 'Attack', 0x663333, 0xaa4444, () => {
+        this.dismissPowerUpPopup();
+        this.gameState.selectedTerritoryId = territory.id;
+        this.gameState.phase = 'selectingDefender';
+        this.refreshDisplay();
+        this.uiRenderer.setStatus('Select an enemy territory to attack');
+      });
+      this.powerUpPopup.add(atkBtn);
+    }
+  }
+
+  private dismissPowerUpPopup(): void {
+    if (this.powerUpPopup) {
+      this.powerUpPopup.destroy();
+      this.powerUpPopup = null;
+    }
+  }
+
+  private activateReinforce(territoryId: number): void {
+    const t = this.gameState.territories[territoryId];
+    const before = t.dice;
+    if (useReinforce(territoryId, this.gameState)) {
+      this.eventLog.addEvent(
+        `Used Reinforce on T${territoryId} (${before}→${t.dice} dice)`,
+        PLAYER_COLORS[this.gameState.currentPlayerIndex],
+      );
+      this.soundManager.playCapture();
+    } else {
+      this.uiRenderer.setStatus('Cannot reinforce (already at max dice)');
+    }
+    this.refreshDisplay();
+  }
+
+  private activateFortify(sourceId: number): void {
+    this.fortifyMode = true;
+    this.fortifySourceId = sourceId;
+    this.mapRenderer.highlightTerritory(this.gameState.territories[sourceId], 0x44cc44);
+    this.uiRenderer.setStatus('Select an adjacent territory to move dice to');
+  }
+
+  private handleFortifyTarget(targetId: number): void {
+    const sourceId = this.fortifySourceId!;
+    const source = this.gameState.territories[sourceId];
+    const target = this.gameState.territories[targetId];
+
+    // Cancel if clicking the source again or invalid
+    if (targetId === sourceId || target.owner !== this.gameState.currentPlayerIndex) {
+      this.cancelFortify();
+      return;
+    }
+
+    const movable = Math.min(3, source.dice - 1, 8 - target.dice);
+    if (movable <= 0 || !useFortify(sourceId, targetId, movable, this.gameState)) {
+      this.uiRenderer.setStatus('Cannot fortify there');
+      this.cancelFortify();
+      return;
+    }
+
+    this.eventLog.addEvent(
+      `Fortified T${targetId} with ${movable} dice from T${sourceId}`,
+      PLAYER_COLORS[this.gameState.currentPlayerIndex],
+    );
+    this.soundManager.playCapture();
+    this.cancelFortify();
+    this.refreshDisplay();
+  }
+
+  private cancelFortify(): void {
+    this.fortifyMode = false;
+    this.fortifySourceId = null;
+    this.mapRenderer.clearHighlight();
+    this.uiRenderer.setStatus('Select a territory to attack from');
   }
 
   private snapshotDice(playerId: number): Map<number, number> {
@@ -766,6 +897,18 @@ export class GameScene extends Phaser.Scene {
       const aliveBeforeAI = new Set(
         this.gameState.players.filter((p) => p.isAlive).map((p) => p.id)
       );
+
+      // Use manual power-ups before attacking
+      if (this.gameState.powerUpsEnabled) {
+        const powerUpActions = useAIPowerUps(this.gameState);
+        for (const action of powerUpActions) {
+          this.eventLog.addEvent(`${currentPlayer.name} ${action}`, currentPlayer.color);
+        }
+        if (powerUpActions.length > 0) {
+          this.refreshDisplay();
+          await this.delay(this.getDelay(400));
+        }
+      }
 
       // Do AI attacks one by one with battle animation
       const personality = PERSONALITIES[currentPlayer.personality ?? 'balanced'];
@@ -1013,7 +1156,8 @@ export class GameScene extends Phaser.Scene {
     if (!territory) return;
 
     const playerName = this.gameState.players[territory.owner]?.name ?? 'Unknown';
-    this.territoryEffects.showTooltip(territory, pointer.x, pointer.y, playerName);
+    const powerUpLabel = territory.powerUp ? POWER_UPS[territory.powerUp].description : undefined;
+    this.territoryEffects.showTooltip(territory, pointer.x, pointer.y, playerName, powerUpLabel);
 
     // Preview attack line when hovering a valid target during defender selection
     if (!this.isProcessing && this.gameState.phase === 'selectingDefender') {

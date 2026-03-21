@@ -170,8 +170,11 @@ export class TerritoryEffects {
 
   // ─── Hover Tooltip ─────────────────────────────────────────
 
-  showTooltip(territory: Territory, x: number, y: number, playerName: string): void {
-    const text = `Territory ${territory.id} \u2022 ${playerName} \u2022 ${territory.dice} dice`;
+  showTooltip(territory: Territory, x: number, y: number, playerName: string, powerUpLabel?: string): void {
+    let text = `Territory ${territory.id} \u2022 ${playerName} \u2022 ${territory.dice} dice`;
+    if (powerUpLabel) {
+      text += `\n${powerUpLabel}`;
+    }
     this.tooltipText.setText(text);
 
     const padding = 6;

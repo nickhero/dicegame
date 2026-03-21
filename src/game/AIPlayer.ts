@@ -8,16 +8,36 @@ import {
   scoreMove,
   filterMovesByPersonality,
 } from './AIPersonality';
+import { useFortify, useReinforce } from './PowerUps';
+import { MAX_DICE_PER_TERRITORY } from './constants';
 
 export interface AIMove {
   attackerId: number;
   defenderId: number;
-  advantage: number; // attacker dice - defender dice
+  advantage: number; // effective advantage accounting for power-ups
+}
+
+const POWER_UP_BONUS = 3;
+
+/**
+ * Calculate effective advantage accounting for power-ups on attacker/defender.
+ */
+export function effectiveAdvantage(
+  attackerDice: number,
+  defenderDice: number,
+  attackerPowerUp?: string,
+  defenderPowerUp?: string,
+): number {
+  let adv = attackerDice - defenderDice;
+  if (attackerPowerUp === 'charge') adv += POWER_UP_BONUS;
+  if (defenderPowerUp === 'shield') adv -= POWER_UP_BONUS;
+  return adv;
 }
 
 /**
  * Find all possible attacks for the current AI player.
  * When visibleSet is provided, only attacks against visible territories are considered.
+ * Advantage accounts for charge/shield power-ups.
  */
 export function findPossibleMoves(state: GameState, visibleSet?: Set<number>): AIMove[] {
   const playerId = state.currentPlayerIndex;
@@ -35,12 +55,65 @@ export function findPossibleMoves(state: GameState, visibleSet?: Set<number>): A
       moves.push({
         attackerId: territory.id,
         defenderId: neighborId,
-        advantage: territory.dice - neighbor.dice,
+        advantage: effectiveAdvantage(
+          territory.dice, neighbor.dice,
+          territory.powerUp, neighbor.powerUp,
+        ),
       });
     }
   }
 
   return moves;
+}
+
+/**
+ * Use any available manual power-ups (Reinforce, Fortify) on the AI's territories.
+ * Returns descriptions of actions taken for logging.
+ */
+export function useAIPowerUps(state: GameState): string[] {
+  const playerId = state.currentPlayerIndex;
+  const actions: string[] = [];
+
+  // Use all Reinforce power-ups first (free +2 dice)
+  for (const t of state.territories) {
+    if (t.owner !== playerId || t.powerUp !== 'reinforce') continue;
+    if (t.dice >= MAX_DICE_PER_TERRITORY) continue;
+    const before = t.dice;
+    if (useReinforce(t.id, state)) {
+      actions.push(`reinforced T${t.id} (${before}→${t.dice} dice)`);
+    }
+  }
+
+  // Use Fortify: move dice from strong interior territories to weaker frontier ones
+  for (const t of state.territories) {
+    if (t.owner !== playerId || t.powerUp !== 'fortify') continue;
+    if (t.dice <= 1) continue;
+
+    // Find the weakest adjacent owned frontier territory
+    let bestTarget: { id: number; dice: number } | null = null;
+    for (const nId of t.neighbors) {
+      const n = state.territories[nId];
+      if (n.owner !== playerId) continue;
+      // Prefer frontier territories (those with enemy neighbors)
+      const isFrontier = n.neighbors.some(
+        (nnId) => state.territories[nnId].owner !== playerId,
+      );
+      if (!isFrontier) continue;
+      if (n.dice >= MAX_DICE_PER_TERRITORY) continue;
+      if (!bestTarget || n.dice < bestTarget.dice) {
+        bestTarget = { id: n.id, dice: n.dice };
+      }
+    }
+
+    if (bestTarget) {
+      const movable = Math.min(3, t.dice - 1, MAX_DICE_PER_TERRITORY - bestTarget.dice);
+      if (movable > 0 && useFortify(t.id, bestTarget.id, movable, state)) {
+        actions.push(`fortified T${bestTarget.id} with ${movable} dice from T${t.id}`);
+      }
+    }
+  }
+
+  return actions;
 }
 
 /**

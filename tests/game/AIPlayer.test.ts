@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { findPossibleMoves, selectBestMove, executeAITurn } from '../../src/game/AIPlayer';
+import { findPossibleMoves, selectBestMove, executeAITurn, effectiveAdvantage, useAIPowerUps } from '../../src/game/AIPlayer';
 import { PERSONALITIES } from '../../src/game/AIPersonality';
 import { GameState, createInitialGameState } from '../../src/game/GameState';
 import { Territory } from '../../src/game/Territory';
@@ -138,5 +138,68 @@ describe('executeAITurn', () => {
     const attacks = executeAITurn(state, rng);
     // Turtle needs advantage >= 3 so with +1 advantage it won't attack
     expect(attacks.length).toBe(0);
+  });
+});
+
+describe('effectiveAdvantage', () => {
+  it('returns raw difference with no power-ups', () => {
+    expect(effectiveAdvantage(5, 3)).toBe(2);
+  });
+
+  it('adds +3 for charge on attacker', () => {
+    expect(effectiveAdvantage(5, 3, 'charge')).toBe(5);
+  });
+
+  it('subtracts 3 for shield on defender', () => {
+    expect(effectiveAdvantage(5, 3, undefined, 'shield')).toBe(-1);
+  });
+
+  it('handles both charge and shield', () => {
+    expect(effectiveAdvantage(5, 3, 'charge', 'shield')).toBe(2);
+  });
+});
+
+describe('findPossibleMoves with power-ups', () => {
+  it('accounts for charge power-up in advantage', () => {
+    const state = createAITestState();
+    state.territories[3].powerUp = 'charge';
+    const moves = findPossibleMoves(state);
+    const t3Attack = moves.find((m) => m.attackerId === 3);
+    expect(t3Attack!.advantage).toBe(6); // 6-3 + 3 charge
+  });
+
+  it('accounts for shield power-up on defender', () => {
+    const state = createAITestState();
+    state.territories[2].powerUp = 'shield';
+    const moves = findPossibleMoves(state);
+    const t3Attack = moves.find((m) => m.attackerId === 3 && m.defenderId === 2);
+    expect(t3Attack!.advantage).toBe(0); // 6-3 - 3 shield
+  });
+});
+
+describe('useAIPowerUps', () => {
+  it('uses reinforce power-ups', () => {
+    const state = createAITestState();
+    state.powerUpsEnabled = true;
+    state.territories[1].powerUp = 'reinforce';
+    const before = state.territories[1].dice;
+    const actions = useAIPowerUps(state);
+    expect(actions.length).toBe(1);
+    expect(state.territories[1].dice).toBe(before + 2);
+    expect(state.territories[1].powerUp).toBeUndefined();
+  });
+
+  it('uses fortify to move dice to frontier territory', () => {
+    const state = createAITestState();
+    state.powerUpsEnabled = true;
+    state.territories[3].powerUp = 'fortify';
+    state.territories[3].dice = 6;
+    state.territories[1].dice = 2;
+    const actions = useAIPowerUps(state);
+    expect(actions.length).toBe(1);
+    expect(state.territories[3].powerUp).toBeUndefined();
+    // Dice moved from T3 to T1 (frontier territory)
+    expect(state.territories[3].dice).toBeLessThan(6);
+    expect(state.territories[1].dice).toBeGreaterThan(2);
   });
 });
