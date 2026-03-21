@@ -4,12 +4,20 @@ import { GameStatsSummary, PlayerStats } from '../game/GameStats';
 import { GameRecording } from '../game/GameRecorder';
 import { generateTextLog } from '../game/EventFormatter';
 
+interface AchievementInfo {
+  id: string;
+  name: string;
+  emoji: string;
+  description: string;
+}
+
 interface GameOverData {
   winnerName: string;
   isVictory: boolean;
   stats?: GameStatsSummary;
   playerNames?: string[];
   recording?: GameRecording;
+  newAchievements?: AchievementInfo[];
 }
 
 export class GameOverScene extends Phaser.Scene {
@@ -18,6 +26,7 @@ export class GameOverScene extends Phaser.Scene {
   private stats: GameStatsSummary | null = null;
   private playerNames: string[] = [];
   private recording: GameRecording | null = null;
+  private newAchievements: AchievementInfo[] = [];
 
   constructor() {
     super('GameOverScene');
@@ -29,6 +38,7 @@ export class GameOverScene extends Phaser.Scene {
     this.stats = data.stats ?? null;
     this.playerNames = data.playerNames ?? [];
     this.recording = data.recording ?? null;
+    this.newAchievements = data.newAchievements ?? [];
   }
 
   create(): void {
@@ -56,6 +66,11 @@ export class GameOverScene extends Phaser.Scene {
 
     if (hasStats) {
       this.drawStatsPanel(cx, titleY + 80);
+    }
+
+    // Achievement notifications
+    if (this.newAchievements.length > 0) {
+      this.drawAchievements(cx, hasStats ? GAME_HEIGHT - 100 : GAME_HEIGHT / 2 + 10);
     }
 
     // Buttons — Play Again + Watch Replay + Export Log
@@ -159,6 +174,32 @@ export class GameOverScene extends Phaser.Scene {
         this.exportLog();
       });
     }
+  }
+
+  private drawAchievements(cx: number, y: number): void {
+    const label = this.newAchievements.length === 1 ? '🏆 Achievement Unlocked!' : '🏆 Achievements Unlocked!';
+    this.add.text(cx, y, label, {
+      fontSize: '14px',
+      color: '#ffcc00',
+      fontFamily: 'monospace',
+      fontStyle: 'bold',
+    }).setOrigin(0.5);
+
+    const startX = cx - ((this.newAchievements.length - 1) * 100) / 2;
+    this.newAchievements.forEach((a, i) => {
+      const ax = startX + i * 100;
+      this.add.text(ax, y + 20, `${a.emoji} ${a.name}`, {
+        fontSize: '11px',
+        color: '#ffffff',
+        fontFamily: 'monospace',
+        fontStyle: 'bold',
+      }).setOrigin(0.5);
+      this.add.text(ax, y + 34, a.description, {
+        fontSize: '9px',
+        color: '#aaaaaa',
+        fontFamily: 'monospace',
+      }).setOrigin(0.5);
+    });
   }
 
   private drawStatsPanel(cx: number, startY: number): void {

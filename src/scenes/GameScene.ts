@@ -20,6 +20,7 @@ import { useFortify, useReinforce, POWER_UPS } from '../game/PowerUps';
 import { estimateWinProbability } from '../game/DiceBattle';
 import { GameRecorder } from '../game/GameRecorder';
 import { saveMatch } from '../game/MatchHistory';
+import { checkAchievements, saveUnlocked, AchievementContext } from '../game/Achievements';
 import { createSnapshot, restoreSnapshot, StateSnapshot } from '../game/GameStateSnapshot';
 import { SeededRandom } from '../utils/random';
 import { MapRenderer } from '../rendering/MapRenderer';
@@ -1430,12 +1431,26 @@ export class GameScene extends Phaser.Scene {
     );
     const stats = this.gameStats.getSummary();
     saveMatch(recording, stats);
+
+    // Check and save achievements
+    const achievementCtx: AchievementContext = {
+      stats,
+      recording,
+      isVictory: winner?.isHuman ?? false,
+      territoryCount: this.gameState.territories.length,
+    };
+    const newAchievements = checkAchievements(achievementCtx);
+    if (newAchievements.length > 0) {
+      saveUnlocked(newAchievements);
+    }
+
     this.scene.start('GameOverScene', {
       winnerName: winner?.name ?? 'Unknown',
       isVictory: winner?.isHuman ?? false,
       stats,
       playerNames: this.gameState.players.map((p) => p.name),
       recording,
+      newAchievements: newAchievements.map(a => ({ id: a.id, name: a.name, emoji: a.emoji, description: a.description })),
     });
   }
 
