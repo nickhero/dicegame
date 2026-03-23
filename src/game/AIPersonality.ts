@@ -167,3 +167,99 @@ export function getRandomPersonality(rng: { next: () => number }): PersonalityTy
   const index = Math.floor(rng.next() * types.length);
   return types[index];
 }
+
+/* ------------------------------------------------------------------ */
+/*  Custom AI Presets                                                  */
+/* ------------------------------------------------------------------ */
+
+export interface CustomAIPreset {
+  name: string;
+  minAdvantage: number;
+  maxAttacksPerTurn: number;  // Infinity for unlimited
+  connectivityBonus: number;
+}
+
+const CUSTOM_PRESETS_KEY = 'dicewars-custom-ai-presets';
+
+/** Convert a custom preset to an AIPersonality config usable by the AI system. */
+export function customPresetToPersonality(preset: CustomAIPreset): AIPersonality {
+  const maxLabel = preset.maxAttacksPerTurn === Infinity ? '∞' : String(preset.maxAttacksPerTurn);
+  return {
+    type: 'balanced',
+    label: preset.name || 'Custom',
+    minAdvantage: preset.minAdvantage,
+    maxAttacksPerTurn: preset.maxAttacksPerTurn,
+    connectivityBonus: preset.connectivityBonus,
+    description: `Custom: adv≥${preset.minAdvantage}, max=${maxLabel}, conn=${preset.connectivityBonus}`,
+  };
+}
+
+/** Save a custom preset to localStorage. Overwrites if name already exists. */
+export function saveCustomPreset(preset: CustomAIPreset): void {
+  const name = preset.name.trim();
+  if (!name) return;
+  try {
+    const existing = loadCustomPresets();
+    const filtered = existing.filter((p) => p.name !== name);
+    filtered.push({ ...preset, name });
+    const serialized = filtered.map(serializePreset);
+    localStorage.setItem(CUSTOM_PRESETS_KEY, JSON.stringify(serialized));
+  } catch {
+    // Storage unavailable — silently ignore
+  }
+}
+
+/** Load all custom presets from localStorage. */
+export function loadCustomPresets(): CustomAIPreset[] {
+  try {
+    const raw = localStorage.getItem(CUSTOM_PRESETS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map(deserializePreset).filter(isValidPreset);
+  } catch {
+    return [];
+  }
+}
+
+/** Delete a custom preset by name. */
+export function deleteCustomPreset(name: string): void {
+  try {
+    const existing = loadCustomPresets();
+    const filtered = existing.filter((p) => p.name !== name);
+    localStorage.setItem(CUSTOM_PRESETS_KEY, JSON.stringify(filtered.map(serializePreset)));
+  } catch {
+    // Storage unavailable — silently ignore
+  }
+}
+
+function serializePreset(preset: CustomAIPreset): object {
+  return {
+    name: preset.name,
+    minAdvantage: preset.minAdvantage,
+    maxAttacksPerTurn: preset.maxAttacksPerTurn === Infinity ? -1 : preset.maxAttacksPerTurn,
+    connectivityBonus: preset.connectivityBonus,
+  };
+}
+
+function deserializePreset(raw: Record<string, unknown>): CustomAIPreset {
+  return {
+    name: String(raw.name ?? ''),
+    minAdvantage: Number(raw.minAdvantage ?? 1),
+    maxAttacksPerTurn: raw.maxAttacksPerTurn === -1 ? Infinity : Number(raw.maxAttacksPerTurn ?? Infinity),
+    connectivityBonus: Number(raw.connectivityBonus ?? 0),
+  };
+}
+
+function isValidPreset(preset: CustomAIPreset): boolean {
+  return (
+    typeof preset.name === 'string' &&
+    preset.name.trim().length > 0 &&
+    typeof preset.minAdvantage === 'number' &&
+    Number.isFinite(preset.minAdvantage) &&
+    typeof preset.maxAttacksPerTurn === 'number' &&
+    (Number.isFinite(preset.maxAttacksPerTurn) || preset.maxAttacksPerTurn === Infinity) &&
+    typeof preset.connectivityBonus === 'number' &&
+    Number.isFinite(preset.connectivityBonus)
+  );
+}

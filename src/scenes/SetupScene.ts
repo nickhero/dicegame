@@ -7,14 +7,23 @@ import {
   TERRITORY_PRESETS,
   DEFAULT_SETUP,
 } from '../game/GameConfig';
-import { ALL_PERSONALITY_TYPES, PersonalityType } from '../game/AIPersonality';
+import {
+  ALL_PERSONALITY_TYPES,
+  PersonalityType,
+  CustomAIPreset,
+  loadCustomPresets,
+  saveCustomPreset,
+  deleteCustomPreset,
+  customPresetToPersonality,
+} from '../game/AIPersonality';
 import { generateMap, assignTerritories, GRID_COLS, GRID_ROWS } from '../game/MapGenerator';
 import { SeededRandom } from '../utils/random';
 import { MapShape } from '../game/MapShapes';
 
 type SpeedOption = GameSetupConfig['speed'];
+type PersonalityOption = PersonalityType | 'random' | 'custom';
 
-const PERSONALITY_OPTIONS: (PersonalityType | 'random')[] = [...ALL_PERSONALITY_TYPES, 'random'];
+const PERSONALITY_OPTIONS: PersonalityOption[] = [...ALL_PERSONALITY_TYPES, 'random', 'custom'];
 
 const MAP_SIZE_LABELS: { label: string; key: keyof typeof TERRITORY_PRESETS }[] = [
   { label: 'S', key: 'small' },
@@ -67,6 +76,9 @@ export class SetupScene extends Phaser.Scene {
   private previewSeed: number = Math.floor(Math.random() * 2147483646) + 1;
   private previewX = 0;
   private previewY = 0;
+  private customAIConfigs: (CustomAIPreset | null)[] = [null, null, null, null, null];
+  private customEditorContainer: Phaser.GameObjects.Container | null = null;
+  private editingAIIndex = -1;
 
   constructor() {
     super('SetupScene');
@@ -75,6 +87,13 @@ export class SetupScene extends Phaser.Scene {
   create(): void {
     this.config = loadPreferences();
     this.previewSeed = Math.floor(Math.random() * 2147483646) + 1;
+
+    // Restore per-slot custom configs from saved preferences
+    if (this.config.customAIConfigs) {
+      for (let i = 0; i < this.config.customAIConfigs.length && i < 5; i++) {
+        this.customAIConfigs[i] = this.config.customAIConfigs[i] ?? null;
+      }
+    }
 
     const cx = GAME_WIDTH / 2;
     const cy = GAME_HEIGHT / 2;
@@ -423,23 +442,349 @@ export class SetupScene extends Phaser.Scene {
     rightArrow.on('pointerout', () => rightArrow.setColor('#88aadd'));
     this.aiContainer.add(rightArrow);
 
+    // Gear button for custom editing
+    const gearBtn = this.add.text(left + 350, y, '⚙', {
+      fontSize: '16px',
+      color: '#88aadd',
+      fontFamily: 'monospace',
+    }).setInteractive({ useHandCursor: true }).setVisible(false);
+    gearBtn.on('pointerdown', () => this.openCustomEditor(index));
+    gearBtn.on('pointerover', () => gearBtn.setColor('#ffffff'));
+    gearBtn.on('pointerout', () => gearBtn.setColor('#88aadd'));
+    this.aiContainer.add(gearBtn);
+
     // Set initial text
     const current = this.config.aiPersonalities[index] ?? 'random';
-    const displayName = current === 'random' ? 'Random' : current.charAt(0).toUpperCase() + current.slice(1);
-    personalityText.setText(displayName);
+    if (current === 'custom') {
+      personalityText.setText(this.customAIConfigs[index]?.name ?? 'Custom ⚙');
+      gearBtn.setVisible(true);
+    } else {
+      const displayName = current === 'random' ? 'Random' : current.charAt(0).toUpperCase() + current.slice(1);
+      personalityText.setText(displayName);
+    }
 
-    return { left, baseY: y, label, personalityText, leftArrow, rightArrow };
+    return { left, baseY: y, label, personalityText, leftArrow, rightArrow, gearBtn };
   }
 
   private cyclePersonality(index: number, direction: number): void {
     const current = this.config.aiPersonalities[index] ?? 'random';
-    const currentIdx = PERSONALITY_OPTIONS.indexOf(current as PersonalityType | 'random');
+    const currentIdx = PERSONALITY_OPTIONS.indexOf(current as PersonalityOption);
     const nextIdx = (currentIdx + direction + PERSONALITY_OPTIONS.length) % PERSONALITY_OPTIONS.length;
     const next = PERSONALITY_OPTIONS[nextIdx];
     this.config.aiPersonalities[index] = next;
 
-    const displayName = next === 'random' ? 'Random' : next.charAt(0).toUpperCase() + next.slice(1);
-    this.aiRows[index].personalityText.setText(displayName);
+    if (next === 'custom') {
+      // Ensure a default custom config exists for this slot
+      if (!this.customAIConfigs[index]) {
+        this.customAIConfigs[index] = { name: 'Custom', minAdvantage: 1, maxAttacksPerTurn: Infinity, connectivityBonus: 0 };
+      }
+      this.aiRows[index].personalityText.setText('Custom ⚙');
+      // Open the editor popup
+      this.openCustomEditor(index);
+    } else {
+      const displayName = next === 'random' ? 'Random' : next.charAt(0).toUpperCase() + next.slice(1);
+      this.aiRows[index].personalityText.setText(displayName);
+      this.customAIConfigs[index] = null;
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Custom AI editor popup                                             */
+  /* ------------------------------------------------------------------ */
+
+  private openCustomEditor(index: number): void {
+    if (this.customEditorContainer) {
+      this.customEditorContainer.destroy();
+    }
+    this.editingAIIndex = index;
+    const preset = this.customAIConfigs[index] ?? { name: 'Custom', minAdvantage: 1, maxAttacksPerTurn: Infinity, connectivityBonus: 0 };
+
+    const cx = GAME_WIDTH / 2;
+    const cy = GAME_HEIGHT / 2;
+    const popW = 420;
+    const popH = 380;
+    const popLeft = cx - popW / 2;
+    const popTop = cy - popH / 2;
+
+    const container = this.add.container(0, 0);
+    this.customEditorContainer = container;
+
+    // Dimmed background
+    const dimBg = this.add.graphics();
+    dimBg.fillStyle(0x000000, 0.6);
+    dimBg.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+    dimBg.setInteractive(new Phaser.Geom.Rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT), Phaser.Geom.Rectangle.Contains);
+    container.add(dimBg);
+
+    // Panel background
+    const panelBg = this.add.graphics();
+    panelBg.fillStyle(0x16213e, 0.98);
+    panelBg.fillRoundedRect(popLeft, popTop, popW, popH, 12);
+    panelBg.lineStyle(2, 0x4a90d9, 1);
+    panelBg.strokeRoundedRect(popLeft, popTop, popW, popH, 12);
+    container.add(panelBg);
+
+    // Title
+    const title = this.add.text(cx, popTop + 25, `CUSTOM AI ${index + 1}`, {
+      fontSize: '20px', color: '#ffffff', fontFamily: 'monospace', fontStyle: 'bold',
+    }).setOrigin(0.5);
+    container.add(title);
+
+    let sliderY = popTop + 65;
+    const sliderX = popLeft + 30;
+    const sliderW = popW - 60;
+
+    // Current mutable values
+    const values = {
+      minAdvantage: preset.minAdvantage,
+      maxAttacksPerTurn: preset.maxAttacksPerTurn,
+      connectivityBonus: preset.connectivityBonus,
+    };
+
+    // --- Min Advantage slider (-2 to 4) ---
+    const advSlider = this.createSlider(
+      container, sliderX, sliderY, sliderW,
+      'Min Advantage', -2, 4, values.minAdvantage,
+      (v) => { values.minAdvantage = v; },
+      (v) => `${v >= 0 ? '+' : ''}${v}`,
+    );
+    sliderY += 60;
+
+    // --- Max Attacks slider (1 to 11, where 11 = ∞) ---
+    const maxAtkRaw = values.maxAttacksPerTurn === Infinity ? 11 : values.maxAttacksPerTurn;
+    const atkSlider = this.createSlider(
+      container, sliderX, sliderY, sliderW,
+      'Max Attacks', 1, 11, maxAtkRaw,
+      (v) => { values.maxAttacksPerTurn = v >= 11 ? Infinity : v; },
+      (v) => v >= 11 ? '∞' : `${v}`,
+    );
+    sliderY += 60;
+
+    // --- Connectivity Bonus slider (0 to 5) ---
+    const connSlider = this.createSlider(
+      container, sliderX, sliderY, sliderW,
+      'Connectivity Bonus', 0, 5, values.connectivityBonus,
+      (v) => { values.connectivityBonus = v; },
+      (v) => `${v}`,
+    );
+    sliderY += 70;
+
+    // --- Saved presets section ---
+    const presetsLabel = this.add.text(sliderX, sliderY, 'Load Preset:', {
+      fontSize: '13px', color: '#aaaaaa', fontFamily: 'monospace',
+    });
+    container.add(presetsLabel);
+    sliderY += 22;
+
+    const presets = loadCustomPresets();
+    const presetListContainer = this.add.container(0, 0);
+    container.add(presetListContainer);
+
+    const renderPresetList = () => {
+      presetListContainer.removeAll(true);
+      const freshPresets = loadCustomPresets();
+      const maxVisible = 3;
+      const visible = freshPresets.slice(0, maxVisible);
+
+      visible.forEach((p, pi) => {
+        const py = sliderY + pi * 24;
+
+        const presetName = this.add.text(sliderX + 10, py, `▸ ${p.name}`, {
+          fontSize: '13px', color: '#88ccff', fontFamily: 'monospace',
+        }).setInteractive({ useHandCursor: true });
+        presetName.on('pointerover', () => presetName.setColor('#ffffff'));
+        presetName.on('pointerout', () => presetName.setColor('#88ccff'));
+        presetName.on('pointerdown', () => {
+          values.minAdvantage = p.minAdvantage;
+          values.maxAttacksPerTurn = p.maxAttacksPerTurn;
+          values.connectivityBonus = p.connectivityBonus;
+          advSlider.update(p.minAdvantage);
+          atkSlider.update(p.maxAttacksPerTurn === Infinity ? 11 : p.maxAttacksPerTurn);
+          connSlider.update(p.connectivityBonus);
+        });
+        presetListContainer.add(presetName);
+
+        // Delete button
+        const delBtn = this.add.text(sliderX + sliderW - 20, py, '✕', {
+          fontSize: '13px', color: '#aa4444', fontFamily: 'monospace',
+        }).setInteractive({ useHandCursor: true });
+        delBtn.on('pointerover', () => delBtn.setColor('#ff6666'));
+        delBtn.on('pointerout', () => delBtn.setColor('#aa4444'));
+        delBtn.on('pointerdown', () => {
+          deleteCustomPreset(p.name);
+          renderPresetList();
+        });
+        presetListContainer.add(delBtn);
+      });
+
+      if (freshPresets.length === 0) {
+        const noPresets = this.add.text(sliderX + 10, sliderY, 'No saved presets', {
+          fontSize: '12px', color: '#666666', fontFamily: 'monospace', fontStyle: 'italic',
+        });
+        presetListContainer.add(noPresets);
+      }
+    };
+    renderPresetList();
+
+    // --- Buttons row ---
+    const btnY = popTop + popH - 45;
+
+    // Save Preset button
+    this.createPopupButton(container, popLeft + 30, btnY, 120, 30, 'Save Preset', 0x335588, () => {
+      const name = window.prompt('Preset name:');
+      if (name && name.trim()) {
+        saveCustomPreset({
+          name: name.trim(),
+          minAdvantage: values.minAdvantage,
+          maxAttacksPerTurn: values.maxAttacksPerTurn,
+          connectivityBonus: values.connectivityBonus,
+        });
+        renderPresetList();
+      }
+    });
+
+    // Done button
+    this.createPopupButton(container, popLeft + popW - 150, btnY, 120, 30, 'Done', 0x338833, () => {
+      this.customAIConfigs[index] = {
+        name: 'Custom',
+        minAdvantage: values.minAdvantage,
+        maxAttacksPerTurn: values.maxAttacksPerTurn,
+        connectivityBonus: values.connectivityBonus,
+      };
+      const maxLabel = values.maxAttacksPerTurn === Infinity ? '∞' : String(values.maxAttacksPerTurn);
+      this.aiRows[index].personalityText.setText(`Custom ⚙`);
+      this.aiRows[index].gearBtn.setVisible(true);
+      this.customEditorContainer?.destroy();
+      this.customEditorContainer = null;
+    });
+  }
+
+  private createSlider(
+    container: Phaser.GameObjects.Container,
+    x: number, y: number, width: number,
+    label: string, min: number, max: number, initial: number,
+    onChange: (value: number) => void,
+    formatValue: (value: number) => string,
+  ): { update: (value: number) => void } {
+    const labelText = this.add.text(x, y, label + ':', {
+      fontSize: '14px', color: '#cccccc', fontFamily: 'monospace',
+    });
+    container.add(labelText);
+
+    const trackY = y + 28;
+    const trackLeft = x + 10;
+    const trackRight = x + width - 50;
+    const trackW = trackRight - trackLeft;
+
+    // Track
+    const track = this.add.graphics();
+    track.fillStyle(0x222244, 1);
+    track.fillRoundedRect(trackLeft, trackY - 3, trackW, 6, 3);
+    container.add(track);
+
+    // Tick marks
+    const tickGfx = this.add.graphics();
+    const steps = max - min;
+    for (let i = 0; i <= steps; i++) {
+      const tx = trackLeft + (i / steps) * trackW;
+      tickGfx.fillStyle(0x445577, 1);
+      tickGfx.fillRect(tx - 0.5, trackY - 6, 1, 12);
+    }
+    container.add(tickGfx);
+
+    // Value display
+    const valueText = this.add.text(x + width - 35, trackY - 8, formatValue(initial), {
+      fontSize: '16px', color: '#ffffff', fontFamily: 'monospace', fontStyle: 'bold',
+    }).setOrigin(0.5, 0);
+    container.add(valueText);
+
+    // Handle
+    const handleSize = 14;
+    const handle = this.add.graphics();
+    let currentValue = initial;
+
+    const positionFromValue = (v: number) => trackLeft + ((v - min) / (max - min)) * trackW;
+    const valueFromPosition = (px: number) => {
+      const ratio = Phaser.Math.Clamp((px - trackLeft) / trackW, 0, 1);
+      return Math.round(ratio * (max - min) + min);
+    };
+
+    const drawHandle = (hx: number, color: number) => {
+      handle.clear();
+      handle.fillStyle(color, 1);
+      handle.fillCircle(hx, trackY, handleSize / 2);
+      handle.lineStyle(2, 0xffffff, 0.8);
+      handle.strokeCircle(hx, trackY, handleSize / 2);
+    };
+
+    let handleX = positionFromValue(initial);
+    drawHandle(handleX, BTN_ACTIVE);
+
+    // Drag zone
+    const dragZone = this.add.zone(trackLeft + trackW / 2, trackY, trackW + handleSize, handleSize + 12)
+      .setInteractive({ useHandCursor: true, draggable: true });
+    container.add(dragZone);
+
+    dragZone.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      const newVal = valueFromPosition(pointer.x);
+      currentValue = newVal;
+      handleX = positionFromValue(newVal);
+      drawHandle(handleX, BTN_ACTIVE);
+      valueText.setText(formatValue(newVal));
+      onChange(newVal);
+    });
+
+    this.input.on('drag', (_pointer: Phaser.Input.Pointer, gameObject: Phaser.GameObjects.GameObject, dragX: number) => {
+      if (gameObject !== dragZone) return;
+      const newVal = valueFromPosition(dragX);
+      if (newVal !== currentValue) {
+        currentValue = newVal;
+        handleX = positionFromValue(newVal);
+        drawHandle(handleX, BTN_ACTIVE);
+        valueText.setText(formatValue(newVal));
+        onChange(newVal);
+      }
+    });
+
+    const update = (newVal: number) => {
+      currentValue = newVal;
+      handleX = positionFromValue(newVal);
+      drawHandle(handleX, BTN_ACTIVE);
+      valueText.setText(formatValue(newVal));
+      onChange(newVal);
+    };
+
+    return { update };
+  }
+
+  private createPopupButton(
+    container: Phaser.GameObjects.Container,
+    x: number, y: number, w: number, h: number,
+    label: string, color: number, onClick: () => void,
+  ): void {
+    const bg = this.add.graphics();
+    bg.fillStyle(color, 1);
+    bg.fillRoundedRect(x, y, w, h, 5);
+    container.add(bg);
+
+    const txt = this.add.text(x + w / 2, y + h / 2, label, {
+      fontSize: '13px', color: '#ffffff', fontFamily: 'monospace', fontStyle: 'bold',
+    }).setOrigin(0.5);
+    container.add(txt);
+
+    const zone = this.add.zone(x + w / 2, y + h / 2, w, h).setInteractive({ useHandCursor: true });
+    zone.on('pointerover', () => {
+      bg.clear();
+      bg.fillStyle(Phaser.Display.Color.ValueToColor(color).lighten(20).color, 1);
+      bg.fillRoundedRect(x, y, w, h, 5);
+    });
+    zone.on('pointerout', () => {
+      bg.clear();
+      bg.fillStyle(color, 1);
+      bg.fillRoundedRect(x, y, w, h, 5);
+    });
+    zone.on('pointerdown', onClick);
+    container.add(zone);
   }
 
   /* ------------------------------------------------------------------ */
@@ -492,6 +837,7 @@ export class SetupScene extends Phaser.Scene {
     // Trim personalities to match player count
     const slotCount = this.config.playerCount - 1;
     this.config.aiPersonalities = this.config.aiPersonalities.slice(0, slotCount);
+    this.config.customAIConfigs = this.customAIConfigs.slice(0, slotCount);
 
     // Pass the preview seed so the game generates the same map the player saw
     if (!this.config.mapSeed) {
@@ -535,4 +881,5 @@ interface AIRow {
   personalityText: Phaser.GameObjects.Text;
   leftArrow: Phaser.GameObjects.Text;
   rightArrow: Phaser.GameObjects.Text;
+  gearBtn: Phaser.GameObjects.Text;
 }

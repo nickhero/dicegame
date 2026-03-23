@@ -1,6 +1,6 @@
 // Game configuration — pure TypeScript, no Phaser imports.
 
-import { PersonalityType } from './AIPersonality';
+import { PersonalityType, CustomAIPreset } from './AIPersonality';
 import { MapShape } from './MapShapes';
 
 export interface GameSetupConfig {
@@ -8,12 +8,13 @@ export interface GameSetupConfig {
   territoryCount: number;       // 15 | 20 | 28 | 35 | 42
   mapSeed: string | null;       // optional seed for reproducible maps
   speed: 'normal' | 'fast' | 'instant';
-  aiPersonalities: (PersonalityType | 'random')[];  // one per AI slot (max 5)
+  aiPersonalities: (PersonalityType | 'random' | 'custom')[];  // one per AI slot (max 5)
   mapShape: MapShape;           // default: 'rectangle'
   fogOfWar: boolean;            // default: false
   powerUps: boolean;            // default: false
   spectatorMode: boolean;       // default: false
   undoEnabled: boolean;         // default: true
+  customAIConfigs?: (CustomAIPreset | null)[];  // per-slot custom configs (indexed same as aiPersonalities)
 }
 
 export const DEFAULT_SETUP: GameSetupConfig = {
@@ -72,6 +73,7 @@ export function loadPreferences(): GameSetupConfig {
       powerUps: typeof parsed.powerUps === 'boolean' ? parsed.powerUps : DEFAULT_SETUP.powerUps,
       spectatorMode: typeof parsed.spectatorMode === 'boolean' ? parsed.spectatorMode : DEFAULT_SETUP.spectatorMode,
       undoEnabled: typeof parsed.undoEnabled === 'boolean' ? parsed.undoEnabled : DEFAULT_SETUP.undoEnabled,
+      customAIConfigs: isValidCustomConfigs(parsed.customAIConfigs) ? parsed.customAIConfigs : undefined,
     };
   } catch {
     return { ...DEFAULT_SETUP, aiPersonalities: [...DEFAULT_SETUP.aiPersonalities] };
@@ -92,10 +94,10 @@ function isValidSpeed(v: unknown): v is GameSetupConfig['speed'] {
 }
 
 const VALID_PERSONALITIES = new Set<string>([
-  'cautious', 'balanced', 'aggressive', 'reckless', 'expansionist', 'turtle', 'random',
+  'cautious', 'balanced', 'aggressive', 'reckless', 'expansionist', 'turtle', 'random', 'custom',
 ]);
 
-function isValidPersonalities(v: unknown): v is (PersonalityType | 'random')[] {
+function isValidPersonalities(v: unknown): v is (PersonalityType | 'random' | 'custom')[] {
   return Array.isArray(v) && v.length <= 5 && v.every((p) => typeof p === 'string' && VALID_PERSONALITIES.has(p));
 }
 
@@ -103,4 +105,19 @@ const VALID_MAP_SHAPES = new Set<string>(['rectangle', 'diamond', 'ring', 'conti
 
 function isValidMapShape(v: unknown): v is MapShape {
   return typeof v === 'string' && VALID_MAP_SHAPES.has(v);
+}
+
+function isValidCustomConfigs(v: unknown): v is (CustomAIPreset | null)[] {
+  if (!Array.isArray(v)) return false;
+  return v.every((item) => {
+    if (item === null) return true;
+    if (typeof item !== 'object' || item === null) return false;
+    const p = item as Record<string, unknown>;
+    return (
+      typeof p.name === 'string' &&
+      typeof p.minAdvantage === 'number' &&
+      typeof p.connectivityBonus === 'number' &&
+      (typeof p.maxAttacksPerTurn === 'number' || p.maxAttacksPerTurn === -1)
+    );
+  });
 }

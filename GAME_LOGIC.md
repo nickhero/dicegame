@@ -314,6 +314,16 @@ Each AI opponent has a **personality** that determines their attack strategy. Pe
 | **Expansionist** | +1 | ∞ | Bonus for connecting territory groups |
 | **Turtle** | +3 | 2 | Hoards dice, rarely attacks |
 
+### Custom AI Personalities
+
+Players can create **custom AI personalities** in the Setup screen by selecting "Custom" for any AI slot. A popup editor allows tuning three parameters:
+
+- **Min Advantage** (−2 to +4): Minimum dice advantage required before the AI will attack
+- **Max Attacks** (1 to 10, or ∞): Maximum number of attacks the AI will make per turn
+- **Connectivity Bonus** (0 to 5): Extra score for moves that connect disconnected territory groups
+
+Custom configurations can be **saved as named presets** to localStorage and reused across games. Presets are managed through the editor popup (save/load/delete).
+
 ### How AI Decisions Work
 
 1. **Find all possible attacks** — Territories with >1 die adjacent to enemies

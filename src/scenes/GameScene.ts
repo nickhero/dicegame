@@ -13,7 +13,7 @@ import {
   distributeSurrenderedTerritories,
 } from '../game/GameRules';
 import { selectBestMove, useAIPowerUps } from '../game/AIPlayer';
-import { PersonalityType, getRandomPersonality, PERSONALITIES } from '../game/AIPersonality';
+import { PersonalityType, getRandomPersonality, PERSONALITIES, CustomAIPreset, customPresetToPersonality } from '../game/AIPersonality';
 import { SPEED_CONFIGS, GameSetupConfig, DEFAULT_SETUP } from '../game/GameConfig';
 import { getVisibleTerritories } from '../game/FogOfWar';
 import { useFortify, useReinforce, POWER_UPS } from '../game/PowerUps';
@@ -84,6 +84,7 @@ export class GameScene extends Phaser.Scene {
         powerUps: data.powerUps ?? DEFAULT_SETUP.powerUps,
         spectatorMode: data.spectatorMode ?? DEFAULT_SETUP.spectatorMode,
         undoEnabled: data.undoEnabled ?? DEFAULT_SETUP.undoEnabled,
+        customAIConfigs: data.customAIConfigs,
       };
     } else {
       this.setupConfig = { ...DEFAULT_SETUP, aiPersonalities: [...DEFAULT_SETUP.aiPersonalities] };
@@ -125,21 +126,33 @@ export class GameScene extends Phaser.Scene {
     if (this.spectatorMode) {
       for (let i = 0; i < playerCount; i++) {
         const personalitySetting = this.setupConfig.aiPersonalities[i] ?? 'random';
-        const personality: PersonalityType =
-          personalitySetting === 'random'
-            ? getRandomPersonality(this.rng)
-            : personalitySetting;
-        players.push(createPlayer(i, allAINames[i], false, PLAYER_COLORS[i], personality));
+        const customConfig = this.setupConfig.customAIConfigs?.[i];
+        if (personalitySetting === 'custom' && customConfig) {
+          const customPersonality = customPresetToPersonality(customConfig);
+          players.push(createPlayer(i, allAINames[i], false, PLAYER_COLORS[i], 'balanced', customPersonality));
+        } else {
+          const personality: PersonalityType =
+            personalitySetting === 'random' || personalitySetting === 'custom'
+              ? getRandomPersonality(this.rng)
+              : personalitySetting;
+          players.push(createPlayer(i, allAINames[i], false, PLAYER_COLORS[i], personality));
+        }
       }
     } else {
       players.push(createPlayer(0, 'Player', true, PLAYER_COLORS[0]));
       for (let i = 1; i < playerCount; i++) {
         const personalitySetting = this.setupConfig.aiPersonalities[i - 1] ?? 'random';
-        const personality: PersonalityType =
-          personalitySetting === 'random'
-            ? getRandomPersonality(this.rng)
-            : personalitySetting;
-        players.push(createPlayer(i, humanNames[i - 1], false, PLAYER_COLORS[i], personality));
+        const customConfig = this.setupConfig.customAIConfigs?.[i - 1];
+        if (personalitySetting === 'custom' && customConfig) {
+          const customPersonality = customPresetToPersonality(customConfig);
+          players.push(createPlayer(i, humanNames[i - 1], false, PLAYER_COLORS[i], 'balanced', customPersonality));
+        } else {
+          const personality: PersonalityType =
+            personalitySetting === 'random' || personalitySetting === 'custom'
+              ? getRandomPersonality(this.rng)
+              : personalitySetting;
+          players.push(createPlayer(i, humanNames[i - 1], false, PLAYER_COLORS[i], personality));
+        }
       }
     }
 
@@ -1097,7 +1110,7 @@ export class GameScene extends Phaser.Scene {
       }
 
       // Do AI attacks one by one with battle animation
-      const personality = PERSONALITIES[currentPlayer.personality ?? 'balanced'];
+      const personality = currentPlayer.customPersonalityConfig ?? PERSONALITIES[currentPlayer.personality ?? 'balanced'];
       const maxAttacks = Math.min(personality.maxAttacksPerTurn, 50);
       let attackCount = 0;
       let wins = 0;
@@ -1389,7 +1402,7 @@ export class GameScene extends Phaser.Scene {
       }
 
       // Execute attacks
-      const personality = PERSONALITIES[currentPlayer.personality ?? 'balanced'];
+      const personality = currentPlayer.customPersonalityConfig ?? PERSONALITIES[currentPlayer.personality ?? 'balanced'];
       const maxAttacks = Math.min(personality.maxAttacksPerTurn, 50);
       const aiVisibleSet = this.fogOfWarEnabled
         ? getVisibleTerritories(this.gameState, currentPlayer.id)
