@@ -191,7 +191,7 @@ export class SetupScene extends Phaser.Scene {
     });
     this.refreshShapeBtns();
 
-    rowY += 45;
+    rowY += 55;
 
     // --- Options row (toggles) ---
     this.add.text(left + 30, rowY, 'Options:', LABEL_STYLE);
@@ -479,11 +479,13 @@ export class SetupScene extends Phaser.Scene {
         this.customAIConfigs[index] = { name: 'Custom', minAdvantage: 1, maxAttacksPerTurn: Infinity, connectivityBonus: 0 };
       }
       this.aiRows[index].personalityText.setText('Custom ⚙');
+      this.aiRows[index].gearBtn.setVisible(true);
       // Open the editor popup
       this.openCustomEditor(index);
     } else {
       const displayName = next === 'random' ? 'Random' : next.charAt(0).toUpperCase() + next.slice(1);
       this.aiRows[index].personalityText.setText(displayName);
+      this.aiRows[index].gearBtn.setVisible(false);
       this.customAIConfigs[index] = null;
     }
   }
@@ -735,8 +737,8 @@ export class SetupScene extends Phaser.Scene {
       onChange(newVal);
     });
 
-    dragZone.on('drag', (_pointer: Phaser.Input.Pointer, dragX: number) => {
-      const newVal = valueFromPosition(dragX);
+    dragZone.on('drag', (pointer: Phaser.Input.Pointer) => {
+      const newVal = valueFromPosition(pointer.x);
       if (newVal !== currentValue) {
         currentValue = newVal;
         handleX = positionFromValue(newVal);
