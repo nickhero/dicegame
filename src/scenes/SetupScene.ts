@@ -701,6 +701,7 @@ export class SetupScene extends Phaser.Scene {
     // Handle
     const handleSize = 14;
     const handle = this.add.graphics();
+    container.add(handle);
     let currentValue = initial;
 
     const positionFromValue = (v: number) => trackLeft + ((v - min) / (max - min)) * trackW;
@@ -734,8 +735,7 @@ export class SetupScene extends Phaser.Scene {
       onChange(newVal);
     });
 
-    this.input.on('drag', (_pointer: Phaser.Input.Pointer, gameObject: Phaser.GameObjects.GameObject, dragX: number) => {
-      if (gameObject !== dragZone) return;
+    dragZone.on('drag', (_pointer: Phaser.Input.Pointer, dragX: number) => {
       const newVal = valueFromPosition(dragX);
       if (newVal !== currentValue) {
         currentValue = newVal;
