@@ -158,7 +158,7 @@ export class SetupScene extends Phaser.Scene {
     this.aiContainer = this.add.container(0, 0);
     this.rebuildAIRows(left, rowY);
 
-    rowY += 5 * 38 + 10; // reserve max 5 rows
+    rowY += 6 * 34 + 10; // reserve max 6 rows (spectator mode)
 
     // --- Speed row ---
     this.add.text(left + 30, rowY, 'Speed:', LABEL_STYLE);
@@ -234,13 +234,12 @@ export class SetupScene extends Phaser.Scene {
 
     rowY += 55;
 
-    // --- START GAME button ---
-    this.createLargeButton(cx, rowY, 200, 44, 'START GAME', 0x338833, 0x44aa44, () => {
+    // --- START GAME & BACK buttons (side by side) ---
+    this.createLargeButton(cx - 115, rowY, 200, 44, 'START GAME', 0x338833, 0x44aa44, () => {
       this.startGame();
     });
 
-    // --- BACK button ---
-    this.createLargeButton(cx, rowY + 55, 200, 44, 'BACK', 0x555555, 0x777777, () => {
+    this.createLargeButton(cx + 115, rowY, 200, 44, 'BACK', 0x555555, 0x777777, () => {
       this.scene.start('MenuScene');
     });
 
@@ -403,7 +402,7 @@ export class SetupScene extends Phaser.Scene {
     }
 
     for (let i = 0; i < slotCount; i++) {
-      const y = baseY + i * 38;
+      const y = baseY + i * 34;
       this.aiRows.push(this.createAIRow(left, y, i));
     }
   }
