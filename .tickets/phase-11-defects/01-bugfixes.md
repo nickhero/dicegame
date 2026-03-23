@@ -1,6 +1,6 @@
 # Bugfixes
 
-- **Status**: pending
+- **Status**: done
 - **Phase**: 11
 - **Depends on**: none
 - **Files**: various
@@ -13,14 +13,14 @@ User-reported bugs to fix. Add new bugs to the list below as they are discovered
 
 <!-- Add bugs here in the format below: -->
 <!-- - [ ] **Short description** — Details about the bug, how to reproduce, expected vs actual behavior -->
-- [ ] 7 **Duplicate elimination events corrupt achievements** — Human attacks don't track pre-attack alive state. Previously eliminated AI players trigger elimination events on every subsequent human attack, causing `triple_kill` and `first_blood` achievements to fire incorrectly. Fix: Capture alive state before attacks and gate elimination recording (see `src/scenes/GameScene.ts:668–677`).
-- [ ] 8 **O(n²) performance in AI pathfinding** — `findConnectedComponents` in `src/utils/graph.ts:25` uses `Array.includes()` inside BFS loop. Fix: Use `Set` for O(1) lookups instead of O(n) array scan.
-- [ ] 9 **AI surrender logic ignores power-ups and alliances** — `shouldAISurrender()` in `src/game/GameRules.ts:222` only checks raw dice counts, not `charge`/`shield` or alliance restrictions. AI can surrender with favorable attacks, or refuse to surrender when blocked by allies. Fix: Base surrender on the same effective/legal attack rules used for actual move selection.
-- [ ] 10 **Dead players' alliances aren't cleaned up** — When a player is eliminated, their alliances and proposals aren't removed in `src/game/GameRules.ts:82`. AI gets stuck thinking it still has a dead ally and refuses new alliance proposals. Fix: Clean up alliances/proposals in elimination/surrender flow and add defensive cleanup in `tickAlliances()`.
-- [ ] 11 **"Underdog" achievement has wrong logic** — `src/game/Achievements.ts:127` implementation doesn't match description. Code checks "fewer territories than at least one opponent" but text says "fewer than any opponent". Fix: Require human start < every opponent's count, or update text to match.
-- [ ] 12 **Player 0 forms self-alliance in spectator mode** — In spectator mode, player 0 is an AI. `generateAIProposal()` in `src/game/Alliance.ts:195` hardcodes player 0 as human and excludes it from normal loop, but special-case logic proposes alliance with itself. Creates self-alliance that locks player 0 out of diplomacy permanently. Fix: Add self-proposal guard or check `isHuman` instead of hardcoding.
-- [ ] 13 **Undo doesn't revert alliance state** — `StateSnapshot` in `src/game/GameStateSnapshot.ts` doesn't capture `allianceState`. Alliance breaks, reputation penalties, and betrayals persist after undo. Fix: Capture/restore alliance state or defer breaks until after attack resolves.
-- [ ] 14 **SeededRandom degenerates with seed 0** — LCG in `src/utils/random.ts:10` is fixed point at seed 0, producing negative numbers and violating `[0, 1)` contract. Currently guarded against in production but latent defect. Fix: Clamp seed in constructor (`this.seed = seed || 1`).
+- [x] 7 **Duplicate elimination events corrupt achievements** — Fixed: capture alive state before attack, only fire elimination for newly dead players.
+- [x] 8 **O(n²) performance in AI pathfinding** — Fixed: converted `nodes` to `Set` for O(1) lookups in BFS.
+- [x] 9 **AI surrender logic ignores power-ups and alliances** — Fixed: charge adds +2 effective dice, allied targets filtered unless personality would break.
+- [x] 10 **Dead players' alliances aren't cleaned up** — Fixed: `cleanupDeadPlayerAlliances()` called on elimination and surrender; defensive cleanup in `tickAlliances()`.
+- [x] 11 **"Underdog" achievement has wrong logic** — Fixed: now requires human < ALL opponents' starting territories.
+- [x] 12 **Player 0 forms self-alliance in spectator mode** — Fixed: replaced hardcoded player 0 check with `isHuman`; added self-proposal guards.
+- [x] 13 **Undo doesn't revert alliance state** — Fixed: `StateSnapshot` now captures and restores full `allianceState`.
+- [x] 14 **SeededRandom degenerates with seed 0** — Fixed: constructor clamps seed for 0, negative, NaN, Infinity.
 
 ## Fix Analysis & Dependencies (Opus 4.6)
 
