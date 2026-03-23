@@ -53,7 +53,7 @@ describe('PowerUps - Shield', () => {
 });
 
 describe('PowerUps - Charge', () => {
-  it('adds +3 to attacker total', () => {
+  it('rolls extra dice for attacker', () => {
     const rng = new SeededRandom(42);
     const attackerTerritory: Territory = {
       id: 0, cells: [], center: { x: 0, y: 0 }, neighbors: [1], owner: 0, dice: 3, powerUp: 'charge',
@@ -62,8 +62,8 @@ describe('PowerUps - Charge', () => {
       id: 1, cells: [], center: { x: 1, y: 0 }, neighbors: [0], owner: 1, dice: 3,
     };
     const result = resolveBattle(3, 3, rng, attackerTerritory, defenderTerritory);
-    const rawAttackerTotal = result.attackerRolls.reduce((a, b) => a + b, 0);
-    expect(result.attackerTotal).toBe(rawAttackerTotal + 3);
+    expect(result.attackerRolls.length).toBe(5); // 3 + 2 extra dice
+    expect(result.attackerTotal).toBe(result.attackerRolls.reduce((a, b) => a + b, 0));
   });
 
   it('is consumed after use', () => {

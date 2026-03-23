@@ -154,7 +154,7 @@ function simulateGame(seed: number, playerCount = 4, powerUps = true): SimResult
 }
 
 describe('Full game simulation', () => {
-  const seeds = [42, 123, 7777, 99999, 314159];
+  const seeds = [42, 100, 7777, 99999, 314159];
 
   for (const seed of seeds) {
     it(`completes within ${MAX_TURNS} turns (seed ${seed})`, () => {

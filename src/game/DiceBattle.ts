@@ -20,12 +20,14 @@ export function sumRolls(rolls: number[]): number {
   return rolls.reduce((a, b) => a + b, 0);
 }
 
-const POWER_UP_BONUS = 3;
+export const CHARGE_EXTRA_DICE = 2;
+const SHIELD_DEFENSE_BONUS = 3;
 
 /**
  * Resolve a battle between attacker and defender.
  * Attacker wins if their total is strictly greater than defender's.
  * If territory objects are provided, charge/shield power-ups are applied and consumed.
+ * Charge adds extra dice to the attacker's roll; Shield adds a flat bonus to defender total.
  */
 export function resolveBattle(
   attackerDice: number,
@@ -34,18 +36,19 @@ export function resolveBattle(
   attackerTerritory?: Territory,
   defenderTerritory?: Territory
 ): BattleResult {
-  const attackerRolls = rollDice(attackerDice, rng);
+  let effectiveAttackDice = attackerDice;
+  if (attackerTerritory?.powerUp === 'charge') {
+    effectiveAttackDice += CHARGE_EXTRA_DICE;
+    attackerTerritory.powerUp = undefined;
+  }
+
+  const attackerRolls = rollDice(effectiveAttackDice, rng);
   const defenderRolls = rollDice(defenderDice, rng);
   let attackerTotal = sumRolls(attackerRolls);
   let defenderTotal = sumRolls(defenderRolls);
 
-  if (attackerTerritory?.powerUp === 'charge') {
-    attackerTotal += POWER_UP_BONUS;
-    attackerTerritory.powerUp = undefined;
-  }
-
   if (defenderTerritory?.powerUp === 'shield') {
-    defenderTotal += POWER_UP_BONUS;
+    defenderTotal += SHIELD_DEFENSE_BONUS;
     defenderTerritory.powerUp = undefined;
   }
 

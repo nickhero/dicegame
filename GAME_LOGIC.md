@@ -70,7 +70,7 @@ Probability of attacker winning (percentages), **without power-ups**:
 
 **Key insight:** Equal dice counts always favor the defender (<50% for attacker). The attacker needs at least 1 die advantage for favorable odds.
 
-**With power-ups:** A Charge or Shield power-up adds **+3** to the respective total. This is roughly equivalent to having 1 extra die (average die = 3.5).
+**With power-ups:** A Charge power-up adds **+2 extra dice** to the attacker's roll, allowing a territory to exceed the normal 8-dice cap on attack. A Shield power-up adds **+3** to the defender's total (roughly equivalent to 1 extra die).
 
 ## Power-Ups
 
@@ -81,7 +81,7 @@ Power-ups are an optional system enabled in the game configuration. When enabled
 | Type | Label | Effect | Activation |
 |------|-------|--------|------------|
 | **Shield** | Shield | Adds **+3** to defender's total when this territory is attacked | Automatic — consumed on defense |
-| **Charge** | Charge | Adds **+3** to attacker's total when attacking from this territory | Automatic — consumed on attack |
+| **Charge** | Charge | Rolls **+2 extra dice** when attacking from this territory | Automatic — consumed on attack |
 | **Fortify** | Fortify | Move **1–3 dice** from this territory to an adjacent owned territory | Manual — player activates it |
 | **Reinforce** | Reinforce | Add **2 dice** to this territory (up to max 8) | Manual — player activates it |
 
@@ -95,7 +95,7 @@ Power-ups are an optional system enabled in the game configuration. When enabled
 
 ### Activation Details
 
-- **Shield & Charge** are consumed **automatically** during battle resolution. The +3 bonus is added after dice are rolled but before comparing totals. Both can be active in the same battle.
+- **Shield & Charge** are consumed **automatically** during battle resolution. Charge adds 2 extra dice to the attacker's roll before rolling. Shield adds +3 to the defender's total after rolling. Both can be active in the same battle.
 - **Fortify** requires selecting the source territory (must have the power-up), then an adjacent owned territory. Must keep at least 1 die on the source. Target cannot exceed 8 dice. Consumes the power-up on use.
 - **Reinforce** adds up to 2 dice (capped at 8 max). Consumes the power-up on use. Does nothing if the territory is already at 8 dice.
 

@@ -24,7 +24,8 @@ export interface PowerUpResult {
   action: GameAction | null; // null for discards
 }
 
-const POWER_UP_BONUS = 3;
+const CHARGE_EXTRA_DICE = 2;
+const SHIELD_DEFENSE_BONUS = 3;
 
 /**
  * Calculate effective advantage accounting for power-ups on attacker/defender.
@@ -36,8 +37,8 @@ export function effectiveAdvantage(
   defenderPowerUp?: string,
 ): number {
   let adv = attackerDice - defenderDice;
-  if (attackerPowerUp === 'charge') adv += POWER_UP_BONUS;
-  if (defenderPowerUp === 'shield') adv -= POWER_UP_BONUS;
+  if (attackerPowerUp === 'charge') adv += CHARGE_EXTRA_DICE;
+  if (defenderPowerUp === 'shield') adv -= SHIELD_DEFENSE_BONUS;
   return adv;
 }
 
@@ -162,6 +163,9 @@ export function useAIPowerUps(state: GameState): PowerUpResult[] {
  */
 function getPersonality(state: GameState): AIPersonality {
   const player = state.players[state.currentPlayerIndex];
+  if (player.customPersonalityConfig) {
+    return player.customPersonalityConfig;
+  }
   const type: PersonalityType = player.personality ?? 'balanced';
   return PERSONALITIES[type];
 }

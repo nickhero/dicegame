@@ -19,7 +19,7 @@ export const POWER_UPS: Record<PowerUpType, PowerUp> = {
   charge: {
     type: 'charge',
     label: 'Charge',
-    description: 'Adds +3 to attacker total when attacking from this territory',
+    description: 'Rolls +2 extra dice when attacking from this territory',
   },
   fortify: {
     type: 'fortify',

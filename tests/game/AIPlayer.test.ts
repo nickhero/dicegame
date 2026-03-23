@@ -146,8 +146,8 @@ describe('effectiveAdvantage', () => {
     expect(effectiveAdvantage(5, 3)).toBe(2);
   });
 
-  it('adds +3 for charge on attacker', () => {
-    expect(effectiveAdvantage(5, 3, 'charge')).toBe(5);
+  it('adds +2 for charge on attacker', () => {
+    expect(effectiveAdvantage(5, 3, 'charge')).toBe(4);
   });
 
   it('subtracts 3 for shield on defender', () => {
@@ -155,7 +155,7 @@ describe('effectiveAdvantage', () => {
   });
 
   it('handles both charge and shield', () => {
-    expect(effectiveAdvantage(5, 3, 'charge', 'shield')).toBe(2);
+    expect(effectiveAdvantage(5, 3, 'charge', 'shield')).toBe(1);
   });
 });
 
@@ -165,7 +165,7 @@ describe('findPossibleMoves with power-ups', () => {
     state.territories[3].powerUp = 'charge';
     const moves = findPossibleMoves(state);
     const t3Attack = moves.find((m) => m.attackerId === 3);
-    expect(t3Attack!.advantage).toBe(6); // 6-3 + 3 charge
+    expect(t3Attack!.advantage).toBe(5); // 6-3 + 2 charge
   });
 
   it('accounts for shield power-up on defender', () => {

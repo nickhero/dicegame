@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { rollDice, sumRolls, resolveBattle, estimateWinProbability } from '../../src/game/DiceBattle';
+import { rollDice, sumRolls, resolveBattle, estimateWinProbability, CHARGE_EXTRA_DICE } from '../../src/game/DiceBattle';
 import { SeededRandom } from '../../src/utils/random';
+import { Territory } from '../../src/game/Territory';
 
 describe('rollDice', () => {
   it('returns correct number of dice', () => {
@@ -103,5 +104,52 @@ describe('estimateWinProbability', () => {
     const p = estimateWinProbability(4, 4);
     expect(p).toBeGreaterThan(0.3);
     expect(p).toBeLessThan(0.5);
+  });
+});
+
+function makeTerritory(overrides: Partial<Territory> = {}): Territory {
+  return {
+    id: 0,
+    cells: [],
+    center: { x: 0, y: 0 },
+    neighbors: [],
+    owner: 0,
+    dice: 1,
+    ...overrides,
+  };
+}
+
+describe('resolveBattle power-ups', () => {
+  it('charge adds extra dice to attacker roll', () => {
+    const rng = new SeededRandom(42);
+    const attacker = makeTerritory({ dice: 8, powerUp: 'charge' });
+    const result = resolveBattle(8, 4, rng, attacker);
+    expect(result.attackerRolls.length).toBe(8 + CHARGE_EXTRA_DICE);
+    expect(result.attackerTotal).toBe(sumRolls(result.attackerRolls));
+  });
+
+  it('charge is consumed after attack', () => {
+    const rng = new SeededRandom(42);
+    const attacker = makeTerritory({ dice: 4, powerUp: 'charge' });
+    resolveBattle(4, 3, rng, attacker);
+    expect(attacker.powerUp).toBeUndefined();
+  });
+
+  it('shield adds flat +3 bonus to defender total', () => {
+    const rng = new SeededRandom(99);
+    const defender = makeTerritory({ dice: 3, powerUp: 'shield' });
+    const result = resolveBattle(4, 3, rng, undefined, defender);
+    expect(result.defenderRolls.length).toBe(3);
+    expect(result.defenderTotal).toBe(sumRolls(result.defenderRolls) + 3);
+    expect(defender.powerUp).toBeUndefined();
+  });
+
+  it('no power-up means no extra dice or bonus', () => {
+    const rng = new SeededRandom(42);
+    const result = resolveBattle(5, 3, rng);
+    expect(result.attackerRolls.length).toBe(5);
+    expect(result.defenderRolls.length).toBe(3);
+    expect(result.attackerTotal).toBe(sumRolls(result.attackerRolls));
+    expect(result.defenderTotal).toBe(sumRolls(result.defenderRolls));
   });
 });
