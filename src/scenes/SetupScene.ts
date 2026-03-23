@@ -218,6 +218,7 @@ export class SetupScene extends Phaser.Scene {
       () => {
         this.config.spectatorMode = !this.config.spectatorMode;
         this.spectatorBtn.redraw(this.config.spectatorMode);
+        this.rebuildAIRows();
       },
     );
     this.spectatorBtn.redraw(this.config.spectatorMode);
@@ -392,7 +393,9 @@ export class SetupScene extends Phaser.Scene {
     this.aiContainer.removeAll(true);
     this.aiRows = [];
 
-    const slotCount = this.config.playerCount - 1;
+    const slotCount = this.config.spectatorMode
+      ? this.config.playerCount
+      : this.config.playerCount - 1;
 
     // Ensure the aiPersonalities array has enough entries
     while (this.config.aiPersonalities.length < slotCount) {
@@ -406,9 +409,10 @@ export class SetupScene extends Phaser.Scene {
   }
 
   private createAIRow(left: number, y: number, index: number): AIRow {
+    const playerIdx = this.config.spectatorMode ? index : index + 1;
     const label = this.add.text(left + 30, y, `AI ${index + 1}:`, {
       ...LABEL_STYLE,
-      color: PLAYER_COLOR_STRINGS[index + 1],
+      color: PLAYER_COLOR_STRINGS[playerIdx],
     });
     this.aiContainer.add(label);
 
@@ -837,7 +841,9 @@ export class SetupScene extends Phaser.Scene {
 
   private startGame(): void {
     // Trim personalities to match player count
-    const slotCount = this.config.playerCount - 1;
+    const slotCount = this.config.spectatorMode
+      ? this.config.playerCount
+      : this.config.playerCount - 1;
     this.config.aiPersonalities = this.config.aiPersonalities.slice(0, slotCount);
     this.config.customAIConfigs = this.customAIConfigs.slice(0, slotCount);
 
