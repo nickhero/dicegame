@@ -138,6 +138,17 @@ export function tickAlliances(
     a => gameState.players[a.player1]?.isAlive && gameState.players[a.player2]?.isAlive
   );
 
+  // Auto-break alliances when only 2 players remain — prevents stalemate
+  const alivePlayers = gameState.players.filter(p => p.isAlive);
+  if (alivePlayers.length <= 2) {
+    for (const a of allianceState.alliances) {
+      result.expired.push(a);
+    }
+    allianceState.alliances = [];
+    allianceState.proposals = [];
+    return result;
+  }
+
   // Tick duration and expire
   const remaining: Alliance[] = [];
   for (const a of allianceState.alliances) {
@@ -182,6 +193,10 @@ export function generateAIProposal(
 ): AllianceProposal | null {
   const player = gameState.players[playerId];
   if (!player || !player.isAlive) return null;
+
+  // Don't propose alliances when only 2 players remain — would cause stalemate
+  const alivePlayers = gameState.players.filter(p => p.isAlive);
+  if (alivePlayers.length <= 2) return null;
 
   // Already has an alliance? Less likely to form another
   const currentAllies = getAllies(allianceState, playerId);

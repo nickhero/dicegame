@@ -511,6 +511,31 @@ describe('tickAlliances cleans up dead players', () => {
   });
 });
 
+describe('tickAlliances auto-breaks alliances with 2 players', () => {
+  it('breaks all alliances when only 2 players are alive', () => {
+    const allianceState = createAllianceState(4);
+    const gameState = makeGameState();
+    formAlliance(allianceState, 0, 1, 1, 10);
+    // Kill players 2 and 3 — only 0 and 1 remain
+    gameState.players[2].isAlive = false;
+    gameState.players[3].isAlive = false;
+    const rng = new SeededRandom(42);
+    const result = tickAlliances(allianceState, gameState, rng);
+    expect(areAllied(allianceState, 0, 1)).toBe(false);
+    expect(result.expired.length).toBe(1);
+  });
+
+  it('does not propose alliances when only 2 players alive', () => {
+    const allianceState = createAllianceState(4);
+    const gameState = makeGameState();
+    gameState.players[2].isAlive = false;
+    gameState.players[3].isAlive = false;
+    gameState.players[1].personality = 'cautious';
+    const proposal = generateAIProposal(allianceState, gameState, 1, 'cautious', new SeededRandom(42));
+    expect(proposal).toBeNull();
+  });
+});
+
 describe('Alliance integration with AI', () => {
   it('AI respects alliances when selecting moves', async () => {
     const { selectBestMove, findPossibleMoves } = await import('../../src/game/AIPlayer');
