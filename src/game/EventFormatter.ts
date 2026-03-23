@@ -117,7 +117,25 @@ export function generateTextLog(recording: GameRecording): string {
 
   lines.push('=== DiceWars Game Log ===');
   lines.push(`Date: ${recording.date}`);
-  lines.push(`Players: ${playerNames.join(', ')}`);
+
+  if (recording.gameConfig) {
+    const c = recording.gameConfig;
+    lines.push(`Seed: ${c.seed}`);
+    lines.push(`Players: ${c.playerCount} · Territories: ${c.territoryCount} · Shape: ${c.mapShape}`);
+    const flags = [
+      c.powerUps ? 'Power-Ups' : null,
+      c.fogOfWar ? 'Fog of War' : null,
+      c.alliances ? 'Alliances' : null,
+      c.spectatorMode ? 'Spectator' : null,
+      c.undoEnabled ? 'Undo' : null,
+    ].filter(Boolean);
+    lines.push(`Speed: ${c.speed} · Options: ${flags.length > 0 ? flags.join(', ') : 'none'}`);
+  }
+
+  const personalities = recording.initialState.players
+    .map((p) => `${p.name} (${p.personality ?? 'human'})`)
+    .join(', ');
+  lines.push(`Players: ${personalities}`);
   lines.push(`Winner: ${recording.winnerName}`);
   lines.push(`Turns: ${recording.turnCount}`);
   lines.push('');

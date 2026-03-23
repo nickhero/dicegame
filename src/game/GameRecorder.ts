@@ -64,6 +64,18 @@ export interface GameRecording {
   winnerId: number | null;
   winnerName: string;
   turnCount: number;
+  gameConfig?: {
+    seed: number;
+    playerCount: number;
+    territoryCount: number;
+    mapShape: string;
+    speed: string;
+    powerUps: boolean;
+    fogOfWar: boolean;
+    alliances: boolean;
+    spectatorMode: boolean;
+    undoEnabled: boolean;
+  };
 }
 
 // ── Serialization helpers ───────────────────────────────────

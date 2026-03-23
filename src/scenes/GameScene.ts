@@ -1489,6 +1489,18 @@ export class GameScene extends Phaser.Scene {
       this.gameState.winner,
       winner?.name ?? 'Unknown',
     );
+    recording.gameConfig = {
+      seed: this.gameSeed,
+      playerCount: this.setupConfig.playerCount,
+      territoryCount: this.setupConfig.territoryCount,
+      mapShape: this.setupConfig.mapShape ?? 'rectangle',
+      speed: this.setupConfig.speed,
+      powerUps: !!this.gameState.powerUpsEnabled,
+      fogOfWar: this.setupConfig.fogOfWar ?? false,
+      alliances: !!this.gameState.allianceState,
+      spectatorMode: this.spectatorMode,
+      undoEnabled: this.setupConfig.undoEnabled ?? true,
+    };
     const stats = this.gameStats.getSummary();
     saveMatch(recording, stats);
 

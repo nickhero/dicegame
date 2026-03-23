@@ -136,7 +136,8 @@ describe('generateTextLog', () => {
   it('includes header with game metadata', () => {
     const log = generateTextLog(makeRecording([]));
     expect(log).toContain('=== DiceWars Game Log ===');
-    expect(log).toContain('Players: Alice, Bot-1');
+    expect(log).toContain('Alice (human)');
+    expect(log).toContain('Bot-1 (aggressive)');
     expect(log).toContain('Winner: Alice');
     expect(log).toContain('Turns: 1');
   });
