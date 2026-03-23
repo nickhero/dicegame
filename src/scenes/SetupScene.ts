@@ -232,15 +232,15 @@ export class SetupScene extends Phaser.Scene {
     );
     this.undoEnabledBtn.redraw(this.config.undoEnabled);
 
-    rowY += 55;
+    rowY += 65;
 
-    // --- START GAME & BACK buttons (side by side) ---
-    this.createLargeButton(cx - 115, rowY, 200, 44, 'START GAME', 0x338833, 0x44aa44, () => {
-      this.startGame();
+    // --- BACK & START GAME buttons (side by side) ---
+    this.createLargeButton(cx - 115, rowY, 200, 44, 'BACK', 0x555555, 0x777777, () => {
+      this.scene.start('MenuScene');
     });
 
-    this.createLargeButton(cx + 115, rowY, 200, 44, 'BACK', 0x555555, 0x777777, () => {
-      this.scene.start('MenuScene');
+    this.createLargeButton(cx + 115, rowY, 200, 44, 'START GAME', 0x338833, 0x44aa44, () => {
+      this.startGame();
     });
 
     // --- Map preview area (right side) ---
