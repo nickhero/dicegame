@@ -54,14 +54,14 @@ export function formatAction(
     case 'fortify': {
       const name = playerNames[action.playerId] ?? '?';
       return {
-        text: `${name} fortified T${action.toId} with ${action.diceCount} dice from T${action.fromId}`,
+        text: `🏰 ${name} fortified T${action.toId} with ${action.diceCount} dice from T${action.fromId}`,
         color: playerColors[action.playerId] ?? 0xcccccc,
       };
     }
     case 'reinforce': {
       const name = playerNames[action.playerId] ?? '?';
       return {
-        text: `${name} used Reinforce on T${action.territoryId}`,
+        text: `🔄 ${name} used Reinforce on T${action.territoryId}`,
         color: playerColors[action.playerId] ?? 0xcccccc,
       };
     }
