@@ -25,10 +25,11 @@ What needs to be done.
 |-------|--------|---------|
 | 9 | `phase-9-quality-of-life/` | Background music, Save/Load, Tooltips & Tutorial |
 | 10 | `phase-10-advanced-mechanics/` | Territory upgrades, Custom AI builder, Tournament mode |
+| 11 | `phase-11-defects/` | Bug fixes & code quality issues |
 
 Also completed from open phases (tickets removed):
-- Phase 7: Map shape selector, Fog of war toggle, Power-ups toggle
-- Phase 9: Game replay, Undo attack
+- Phase 7: Map shape selector, Fog of war toggle, Power-ups toggle, Undo attack
+- Phase 9: Game replay
 - Phase 10: Alliance system, Achievements
 
 ## Quick Status

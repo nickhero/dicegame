@@ -650,6 +650,9 @@ export class GameScene extends Phaser.Scene {
 
     const attackerPlayerId = this.gameState.currentPlayerIndex;
     const defenderPlayerId = this.gameState.territories[territoryId].owner;
+    const aliveBeforeAttack = new Set(
+      this.gameState.players.filter((p) => p.isAlive).map((p) => p.id)
+    );
     const result = executeAttack(attackerId, territoryId, this.gameState, this.rng);
     this.gameStats.recordAttack(attackerPlayerId, defenderPlayerId, result, this.gameState);
     this.gameRecorder.recordAction({
@@ -663,16 +666,13 @@ export class GameScene extends Phaser.Scene {
       PLAYER_COLORS[this.gameState.currentPlayerIndex]
     );
 
-    // Check for eliminations after attack
+    // Check for newly eliminated players (only those alive before this attack)
     const eliminatedPlayers: number[] = [];
     for (const p of this.gameState.players) {
-      if (!p.isHuman && !p.isAlive) {
-        const hasTerritories = this.gameState.territories.some((t) => t.owner === p.id);
-        if (!hasTerritories) {
-          this.eventLog.addEvent(`${p.name} was eliminated!`, 0xff4444);
-          this.gameRecorder.recordAction({ type: 'elimination', playerId: p.id, eliminatedBy: this.gameState.currentPlayerIndex });
-          eliminatedPlayers.push(p.id);
-        }
+      if (aliveBeforeAttack.has(p.id) && !p.isAlive) {
+        this.eventLog.addEvent(`${p.name} was eliminated!`, 0xff4444);
+        this.gameRecorder.recordAction({ type: 'elimination', playerId: p.id, eliminatedBy: this.gameState.currentPlayerIndex });
+        eliminatedPlayers.push(p.id);
       }
     }
 
