@@ -60,6 +60,7 @@ export class SetupScene extends Phaser.Scene {
   private fogOfWarBtn!: { bg: Phaser.GameObjects.Graphics; zone: Phaser.GameObjects.Zone; text: Phaser.GameObjects.Text; redraw: (active: boolean) => void };
   private powerUpsBtn!: { bg: Phaser.GameObjects.Graphics; zone: Phaser.GameObjects.Zone; text: Phaser.GameObjects.Text; redraw: (active: boolean) => void };
   private spectatorBtn!: { bg: Phaser.GameObjects.Graphics; zone: Phaser.GameObjects.Zone; text: Phaser.GameObjects.Text; redraw: (active: boolean) => void };
+  private undoEnabledBtn!: { bg: Phaser.GameObjects.Graphics; zone: Phaser.GameObjects.Zone; text: Phaser.GameObjects.Text; redraw: (active: boolean) => void };
   private aiRows: AIRow[] = [];
   private aiContainer!: Phaser.GameObjects.Container;
   private previewGraphics!: Phaser.GameObjects.Graphics;
@@ -201,6 +202,15 @@ export class SetupScene extends Phaser.Scene {
       },
     );
     this.spectatorBtn.redraw(this.config.spectatorMode);
+
+    this.undoEnabledBtn = this.createButton(
+      left + 535, rowY - 5, 110, 30, 'Undo',
+      () => {
+        this.config.undoEnabled = !this.config.undoEnabled;
+        this.undoEnabledBtn.redraw(this.config.undoEnabled);
+      },
+    );
+    this.undoEnabledBtn.redraw(this.config.undoEnabled);
 
     rowY += 55;
 

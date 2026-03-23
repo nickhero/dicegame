@@ -1,6 +1,7 @@
 // Deep-clone and restore utilities for undo — pure TypeScript, no Phaser imports.
 
 import { GameState } from './GameState';
+import { AllianceState } from './Alliance';
 
 export interface StateSnapshot {
   territories: { owner: number; dice: number; powerUp?: string }[];
@@ -10,6 +11,7 @@ export interface StateSnapshot {
   selectedTerritoryId: number | null;
   consecutiveDesperate: [number, number][];
   powerUpsEnabled?: boolean;
+  allianceState?: AllianceState;
 }
 
 export function createSnapshot(state: GameState): StateSnapshot {
@@ -30,6 +32,16 @@ export function createSnapshot(state: GameState): StateSnapshot {
     selectedTerritoryId: state.selectedTerritoryId,
     consecutiveDesperate: Array.from(state.consecutiveDesperate.entries()),
     powerUpsEnabled: state.powerUpsEnabled,
+    allianceState: state.allianceState ? cloneAllianceState(state.allianceState) : undefined,
+  };
+}
+
+function cloneAllianceState(s: AllianceState): AllianceState {
+  return {
+    alliances: s.alliances.map(a => ({ ...a })),
+    proposals: s.proposals.map(p => ({ ...p })),
+    reputation: new Map(s.reputation),
+    betrayals: new Map(s.betrayals),
   };
 }
 
@@ -60,4 +72,10 @@ export function restoreSnapshot(state: GameState, snapshot: StateSnapshot): void
   }
 
   state.powerUpsEnabled = snapshot.powerUpsEnabled;
+
+  if (snapshot.allianceState) {
+    state.allianceState = cloneAllianceState(snapshot.allianceState);
+  } else {
+    state.allianceState = undefined;
+  }
 }

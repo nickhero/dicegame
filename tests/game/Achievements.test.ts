@@ -338,19 +338,27 @@ describe('On a Roll (win streak)', () => {
 describe('Underdog', () => {
   const check = findAchievement('underdog').check;
 
-  it('unlocks when starting with fewer territories', () => {
+  it('unlocks when starting with fewer territories than ALL opponents', () => {
     const ctx = makeCtx();
     ctx.stats.territoriesOverTime.set(0, [5, 8, 15, 28]);
     ctx.stats.territoriesOverTime.set(1, [8, 6, 3, 0]);
+    ctx.stats.territoriesOverTime.set(2, [9, 5, 2, 0]);
     expect(check(ctx)).toBe(true);
   });
 
-  it('does not unlock when starting equal', () => {
+  it('does not unlock when human has same count as any opponent', () => {
     const ctx = makeCtx();
     ctx.stats.territoriesOverTime.set(0, [7, 10, 28]);
     ctx.stats.territoriesOverTime.set(1, [7, 4, 0]);
-    ctx.stats.territoriesOverTime.set(2, [7, 4, 0]);
-    ctx.stats.territoriesOverTime.set(3, [7, 10, 0]);
+    ctx.stats.territoriesOverTime.set(2, [9, 5, 0]);
+    expect(check(ctx)).toBe(false);
+  });
+
+  it('does not unlock when human has more than any opponent', () => {
+    const ctx = makeCtx();
+    ctx.stats.territoriesOverTime.set(0, [10, 15, 28]);
+    ctx.stats.territoriesOverTime.set(1, [8, 6, 0]);
+    ctx.stats.territoriesOverTime.set(2, [12, 5, 0]);
     expect(check(ctx)).toBe(false);
   });
 

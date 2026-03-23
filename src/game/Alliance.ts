@@ -133,6 +133,11 @@ export function tickAlliances(
 ): AllianceTickResult {
   const result: AllianceTickResult = { expired: [], newProposals: [] };
 
+  // Defensive cleanup: remove alliances involving dead players
+  allianceState.alliances = allianceState.alliances.filter(
+    a => gameState.players[a.player1]?.isAlive && gameState.players[a.player2]?.isAlive
+  );
+
   // Tick duration and expire
   const remaining: Alliance[] = [];
   for (const a of allianceState.alliances) {
@@ -192,7 +197,7 @@ export function generateAIProposal(
   let bestScore = -Infinity;
 
   for (const other of gameState.players) {
-    if (other.id === playerId || !other.isAlive || other.id === 0) continue; // don't propose to dead or self
+    if (other.id === playerId || !other.isAlive || other.isHuman) continue; // don't propose to dead, self, or human (handled below)
     if (areAllied(allianceState, playerId, other.id)) continue;
 
     // Check reputation — won't ally with known betrayers
@@ -223,17 +228,19 @@ export function generateAIProposal(
   }
 
   // Also consider proposing to human (player 0)
-  if (bestTarget === null || rng.next() < 0.3) {
-    const human = gameState.players[0];
-    if (human && human.isAlive && !areAllied(allianceState, playerId, 0)) {
-      const humanRep = allianceState.reputation.get(0) ?? 50;
-      if (humanRep >= MIN_REPUTATION_FOR_PROPOSAL) {
-        bestTarget = 0;
+  if (playerId !== 0 && gameState.players[0]?.isHuman) {
+    if (bestTarget === null || rng.next() < 0.3) {
+      const human = gameState.players[0];
+      if (human.isAlive && !areAllied(allianceState, playerId, 0)) {
+        const humanRep = allianceState.reputation.get(0) ?? 50;
+        if (humanRep >= MIN_REPUTATION_FOR_PROPOSAL) {
+          bestTarget = 0;
+        }
       }
     }
   }
 
-  if (bestTarget === null) return null;
+  if (bestTarget === null || bestTarget === playerId) return null;
 
   return {
     fromPlayer: playerId,
@@ -280,6 +287,16 @@ export function aiWouldBreakAlliance(
     return myTerritories > gameState.territories.length * 0.4;
   }
   return false;
+}
+
+/** Remove all alliances and proposals involving a dead player. Preserves reputation and betrayal history. */
+export function cleanupDeadPlayerAlliances(allianceState: AllianceState, playerId: number): void {
+  allianceState.alliances = allianceState.alliances.filter(
+    a => a.player1 !== playerId && a.player2 !== playerId
+  );
+  allianceState.proposals = allianceState.proposals.filter(
+    p => p.fromPlayer !== playerId && p.toPlayer !== playerId
+  );
 }
 
 function getAllianceWillingness(personality: PersonalityType): number {

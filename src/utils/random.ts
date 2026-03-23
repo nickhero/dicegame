@@ -2,7 +2,7 @@ export class SeededRandom {
   private seed: number;
 
   constructor(seed: number) {
-    this.seed = seed;
+    this.seed = (seed > 0 && Number.isFinite(seed)) ? Math.floor(seed) : 1;
   }
 
   /** Returns a float in [0, 1) */

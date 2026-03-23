@@ -131,9 +131,9 @@ export const ACHIEVEMENTS: AchievementDef[] = [
       const humanStart = history.get(0)?.[0] ?? 0;
       if (humanStart === 0) return false;
       for (const [pid, counts] of history) {
-        if (pid !== 0 && counts[0] > humanStart) return true;
+        if (pid !== 0 && counts[0] <= humanStart) return false;
       }
-      return false;
+      return true;
     },
   },
   {

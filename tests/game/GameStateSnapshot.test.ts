@@ -4,6 +4,7 @@ import { GameState, createInitialGameState } from '../../src/game/GameState';
 import { Territory } from '../../src/game/Territory';
 import { createPlayer } from '../../src/game/Player';
 import { buildAdjacencyMap } from '../../src/utils/graph';
+import { createAllianceState, formAlliance, breakAlliance, areAllied } from '../../src/game/Alliance';
 
 function createTestState(): GameState {
   const adjacency = buildAdjacencyMap([
@@ -176,5 +177,70 @@ describe('restoreSnapshot', () => {
     }
     // adjacency map should still exist and be the same reference
     expect(state.adjacency.size).toBe(4);
+  });
+
+  it('captures and restores alliance state', () => {
+    const state = createTestState();
+    state.allianceState = createAllianceState(2);
+    formAlliance(state.allianceState, 0, 1, 1, 5);
+    state.allianceState.reputation.set(0, 75);
+    state.allianceState.betrayals.set('0-1', 1);
+    state.allianceState.proposals.push({ fromPlayer: 1, toPlayer: 0, duration: 3 });
+
+    const snapshot = createSnapshot(state);
+
+    expect(snapshot.allianceState).toBeDefined();
+    expect(snapshot.allianceState!.alliances).toHaveLength(1);
+    expect(snapshot.allianceState!.reputation.get(0)).toBe(75);
+    expect(snapshot.allianceState!.betrayals.get('0-1')).toBe(1);
+    expect(snapshot.allianceState!.proposals).toHaveLength(1);
+  });
+
+  it('restores alliance state after breaking alliance', () => {
+    const state = createTestState();
+    state.allianceState = createAllianceState(2);
+    formAlliance(state.allianceState, 0, 1, 1, 5);
+
+    const snapshot = createSnapshot(state);
+    expect(areAllied(state.allianceState, 0, 1)).toBe(true);
+
+    // Break the alliance (betrayal)
+    breakAlliance(state.allianceState, 0, 1);
+    expect(areAllied(state.allianceState, 0, 1)).toBe(false);
+    expect(state.allianceState.reputation.get(0)).toBeLessThan(50);
+    expect(state.allianceState.betrayals.get('0-1')).toBe(1);
+
+    // Restore should revert everything
+    restoreSnapshot(state, snapshot);
+    expect(areAllied(state.allianceState!, 0, 1)).toBe(true);
+    expect(state.allianceState!.reputation.get(0)).toBe(50);
+    expect(state.allianceState!.betrayals.get('0-1')).toBeUndefined();
+  });
+
+  it('snapshot works when allianceState is undefined', () => {
+    const state = createTestState();
+    state.allianceState = undefined;
+
+    const snapshot = createSnapshot(state);
+    expect(snapshot.allianceState).toBeUndefined();
+
+    restoreSnapshot(state, snapshot);
+    expect(state.allianceState).toBeUndefined();
+  });
+
+  it('snapshot is a deep clone — mutating state does not affect snapshot', () => {
+    const state = createTestState();
+    state.allianceState = createAllianceState(2);
+    formAlliance(state.allianceState, 0, 1, 1, 5);
+
+    const snapshot = createSnapshot(state);
+
+    // Mutate original state
+    state.allianceState.alliances[0].duration = 99;
+    state.allianceState.reputation.set(0, 0);
+
+    // Snapshot should be unaffected
+    expect(snapshot.allianceState!.alliances[0].duration).toBe(5);
+    expect(snapshot.allianceState!.reputation.get(0)).toBe(50);
   });
 });

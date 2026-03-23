@@ -63,6 +63,7 @@ export class GameScene extends Phaser.Scene {
   private gameRecorder!: GameRecorder;
   private undoSnapshot: StateSnapshot | null = null;
   private undoUsedThisTurn = false;
+  private undoEnabled = true;
   private gameSeed = 0;
   private lastAllianceTickTurn = 0;
 
@@ -82,6 +83,7 @@ export class GameScene extends Phaser.Scene {
         fogOfWar: data.fogOfWar ?? DEFAULT_SETUP.fogOfWar,
         powerUps: data.powerUps ?? DEFAULT_SETUP.powerUps,
         spectatorMode: data.spectatorMode ?? DEFAULT_SETUP.spectatorMode,
+        undoEnabled: data.undoEnabled ?? DEFAULT_SETUP.undoEnabled,
       };
     } else {
       this.setupConfig = { ...DEFAULT_SETUP, aiPersonalities: [...DEFAULT_SETUP.aiPersonalities] };
@@ -148,6 +150,7 @@ export class GameScene extends Phaser.Scene {
     this.gameState = createInitialGameState(territories, players, adjacency);
 
     this.fogOfWarEnabled = this.setupConfig.fogOfWar;
+    this.undoEnabled = this.setupConfig.undoEnabled ?? true;
     if (this.setupConfig.powerUps) {
       this.gameState.powerUpsEnabled = true;
     }
@@ -301,7 +304,7 @@ export class GameScene extends Phaser.Scene {
     if (!currentPlayer.isHuman) return;
 
     // Z — undo last attack
-    if (key === 'Z') {
+    if (key === 'Z' && this.undoEnabled) {
       this.undoLastAttack();
       return;
     }

@@ -13,6 +13,7 @@ export interface GameSetupConfig {
   fogOfWar: boolean;            // default: false
   powerUps: boolean;            // default: false
   spectatorMode: boolean;       // default: false
+  undoEnabled: boolean;         // default: true
 }
 
 export const DEFAULT_SETUP: GameSetupConfig = {
@@ -25,6 +26,7 @@ export const DEFAULT_SETUP: GameSetupConfig = {
   fogOfWar: false,
   powerUps: false,
   spectatorMode: false,
+  undoEnabled: true,
 };
 
 export const TERRITORY_PRESETS = {
@@ -69,6 +71,7 @@ export function loadPreferences(): GameSetupConfig {
       fogOfWar: typeof parsed.fogOfWar === 'boolean' ? parsed.fogOfWar : DEFAULT_SETUP.fogOfWar,
       powerUps: typeof parsed.powerUps === 'boolean' ? parsed.powerUps : DEFAULT_SETUP.powerUps,
       spectatorMode: typeof parsed.spectatorMode === 'boolean' ? parsed.spectatorMode : DEFAULT_SETUP.spectatorMode,
+      undoEnabled: typeof parsed.undoEnabled === 'boolean' ? parsed.undoEnabled : DEFAULT_SETUP.undoEnabled,
     };
   } catch {
     return { ...DEFAULT_SETUP, aiPersonalities: [...DEFAULT_SETUP.aiPersonalities] };

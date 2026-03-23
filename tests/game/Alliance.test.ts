@@ -10,6 +10,7 @@ import {
   generateAIProposal,
   aiWouldAcceptProposal,
   aiWouldBreakAlliance,
+  cleanupDeadPlayerAlliances,
   AllianceState,
   AllianceProposal,
 } from '../../src/game/Alliance';
@@ -329,6 +330,59 @@ describe('generateAIProposal', () => {
       }
     }
   });
+
+  it('player 0 never proposes to self', () => {
+    const gameState = makeGameState();
+    // Make player 0 an AI (spectator mode)
+    gameState.players[0].isHuman = false;
+    gameState.players[0].personality = 'balanced';
+
+    for (let seed = 1; seed <= 200; seed++) {
+      const proposal = generateAIProposal(createAllianceState(4), gameState, 0, 'balanced', new SeededRandom(seed));
+      if (proposal) {
+        expect(proposal.toPlayer).not.toBe(0);
+        expect(proposal.fromPlayer).toBe(0);
+      }
+    }
+  });
+
+  it('in spectator mode, player 0 can propose to other AI players', () => {
+    const gameState = makeGameState();
+    // All players are AI (spectator mode)
+    for (const p of gameState.players) {
+      p.isHuman = false;
+      p.personality = p.personality ?? 'balanced';
+    }
+
+    let found = false;
+    for (let seed = 1; seed <= 200; seed++) {
+      const proposal = generateAIProposal(createAllianceState(4), gameState, 0, 'balanced', new SeededRandom(seed));
+      if (proposal) {
+        expect(proposal.fromPlayer).toBe(0);
+        expect(proposal.toPlayer).not.toBe(0);
+        found = true;
+        break;
+      }
+    }
+    expect(found).toBe(true);
+  });
+
+  it('skips propose-to-human block when player 0 is not human', () => {
+    const gameState = makeGameState();
+    // Make player 0 an AI
+    gameState.players[0].isHuman = false;
+    gameState.players[0].personality = 'balanced';
+    // Kill all other players so the only possible target would be via the human block
+    gameState.players[1].isAlive = false;
+    gameState.players[2].isAlive = false;
+    gameState.players[3].isAlive = false;
+
+    for (let seed = 1; seed <= 100; seed++) {
+      const proposal = generateAIProposal(createAllianceState(4), gameState, 1, 'cautious', new SeededRandom(seed));
+      // With all others dead and player 0 not human, should never propose
+      expect(proposal).toBeNull();
+    }
+  });
 });
 
 describe('aiWouldAcceptProposal', () => {
@@ -394,6 +448,66 @@ describe('aiWouldBreakAlliance', () => {
     const allianceState = createAllianceState(4);
     const gameState = makeGameState(); // 5 territories each
     expect(aiWouldBreakAlliance(allianceState, gameState, 1, 'aggressive')).toBe(false);
+  });
+});
+
+describe('cleanupDeadPlayerAlliances', () => {
+  it('removes alliances involving the dead player', () => {
+    const state = createAllianceState(4);
+    formAlliance(state, 0, 1, 1);
+    formAlliance(state, 1, 2, 1);
+    formAlliance(state, 2, 3, 1);
+    cleanupDeadPlayerAlliances(state, 1);
+    expect(areAllied(state, 0, 1)).toBe(false);
+    expect(areAllied(state, 1, 2)).toBe(false);
+    expect(areAllied(state, 2, 3)).toBe(true);
+    expect(state.alliances).toHaveLength(1);
+  });
+
+  it('removes proposals to/from the dead player', () => {
+    const state = createAllianceState(4);
+    state.proposals.push(
+      { fromPlayer: 1, toPlayer: 2, duration: 5 },
+      { fromPlayer: 3, toPlayer: 1, duration: 5 },
+      { fromPlayer: 2, toPlayer: 3, duration: 5 },
+    );
+    cleanupDeadPlayerAlliances(state, 1);
+    expect(state.proposals).toHaveLength(1);
+    expect(state.proposals[0].fromPlayer).toBe(2);
+    expect(state.proposals[0].toPlayer).toBe(3);
+  });
+
+  it('preserves other players\' alliances', () => {
+    const state = createAllianceState(4);
+    formAlliance(state, 0, 2, 1);
+    formAlliance(state, 2, 3, 1);
+    cleanupDeadPlayerAlliances(state, 1);
+    expect(areAllied(state, 0, 2)).toBe(true);
+    expect(areAllied(state, 2, 3)).toBe(true);
+    expect(state.alliances).toHaveLength(2);
+  });
+
+  it('preserves reputation and betrayal history', () => {
+    const state = createAllianceState(4);
+    state.reputation.set(1, 30);
+    state.betrayals.set('0-1', 2);
+    formAlliance(state, 0, 1, 1);
+    cleanupDeadPlayerAlliances(state, 1);
+    expect(state.reputation.get(1)).toBe(30);
+    expect(state.betrayals.get('0-1')).toBe(2);
+  });
+});
+
+describe('tickAlliances cleans up dead players', () => {
+  it('removes alliances where a player is dead', () => {
+    const allianceState = createAllianceState(4);
+    const gameState = makeGameState();
+    formAlliance(allianceState, 1, 2, 1, 5);
+    // Kill player 2
+    gameState.players[2].isAlive = false;
+    const rng = new SeededRandom(42);
+    tickAlliances(allianceState, gameState, rng);
+    expect(areAllied(allianceState, 1, 2)).toBe(false);
   });
 });
 
@@ -517,5 +631,38 @@ describe('Alliance integration with AI', () => {
     expect(state.phase).toBe('gameOver');
     // At least some alliances should form with cautious players
     expect(alliancesFormed).toBeGreaterThan(0);
+  });
+
+  it('after elimination in GameRules, alliances are cleaned up', async () => {
+    const { checkElimination } = await import('../../src/game/GameRules');
+    const { distributeSurrenderedTerritories } = await import('../../src/game/GameRules');
+    const gameState = makeGameState();
+    gameState.allianceState = createAllianceState(4);
+    formAlliance(gameState.allianceState, 1, 2, 1);
+    formAlliance(gameState.allianceState, 2, 3, 1);
+    gameState.allianceState.proposals.push({ fromPlayer: 2, toPlayer: 0, duration: 5 });
+
+    // Remove all of player 2's territories to trigger elimination
+    for (const t of gameState.territories) {
+      if (t.owner === 2) t.owner = 0;
+    }
+    checkElimination(gameState);
+
+    expect(gameState.players[2].isAlive).toBe(false);
+    expect(areAllied(gameState.allianceState, 1, 2)).toBe(false);
+    expect(areAllied(gameState.allianceState, 2, 3)).toBe(false);
+    expect(gameState.allianceState.proposals).toHaveLength(0);
+  });
+
+  it('after surrender, alliances are cleaned up', async () => {
+    const { distributeSurrenderedTerritories } = await import('../../src/game/GameRules');
+    const gameState = makeGameState();
+    gameState.allianceState = createAllianceState(4);
+    formAlliance(gameState.allianceState, 1, 3, 1);
+
+    distributeSurrenderedTerritories(gameState, 3);
+
+    expect(gameState.players[3].isAlive).toBe(false);
+    expect(areAllied(gameState.allianceState, 1, 3)).toBe(false);
   });
 });

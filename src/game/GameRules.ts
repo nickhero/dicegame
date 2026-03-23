@@ -5,6 +5,7 @@ import { resolveBattle } from './DiceBattle';
 import { largestContiguousGroup } from '../utils/graph';
 import { MAX_DICE_PER_TERRITORY, MAX_RESERVE_DICE } from './constants';
 import { spawnPowerUp, PowerUpSpawnInfo } from './PowerUps';
+import { wouldBreakAlliance, aiWouldBreakAlliance, cleanupDeadPlayerAlliances } from './Alliance';
 
 /**
  * Check if a territory can attack (has >1 die and has enemy neighbor).
@@ -87,6 +88,9 @@ export function checkElimination(state: GameState): void {
     );
     if (!hasTerritory) {
       player.isAlive = false;
+      if (state.allianceState) {
+        cleanupDeadPlayerAlliances(state.allianceState, player.id);
+      }
     }
   }
 }
@@ -218,15 +222,31 @@ export function getValidTargets(
 
 /**
  * Check if any attack from the given player has a positive dice advantage (≥1).
+ * Considers alliance restrictions: allied targets are excluded unless the AI
+ * personality would break the alliance. Considers power-ups: charge adds +2
+ * effective attack dice.
  */
 function hasPositiveAdvantageAttack(state: GameState, playerId: number): boolean {
+  const personality = state.players[playerId].personality ?? 'balanced';
   for (const territory of state.territories) {
     if (territory.owner !== playerId) continue;
     if (territory.dice <= 1) continue;
+
+    const effectiveDice = territory.dice +
+      (state.powerUpsEnabled && territory.powerUp === 'charge' ? 2 : 0);
+
     for (const nId of territory.neighbors) {
       const neighbor = state.territories[nId];
       if (neighbor.owner === playerId) continue;
-      if (territory.dice - neighbor.dice >= 1) return true;
+
+      // Skip allied targets unless AI would break the alliance
+      if (state.allianceState &&
+          wouldBreakAlliance(state.allianceState, playerId, neighbor.owner) &&
+          !aiWouldBreakAlliance(state.allianceState, state, playerId, personality)) {
+        continue;
+      }
+
+      if (effectiveDice - neighbor.dice >= 1) return true;
     }
   }
   return false;
@@ -326,6 +346,9 @@ export function distributeSurrenderedTerritories(state: GameState, playerId: num
 
   // Mark player as dead
   state.players[playerId].isAlive = false;
+  if (state.allianceState) {
+    cleanupDeadPlayerAlliances(state.allianceState, playerId);
+  }
 
   checkWinner(state);
 }

@@ -59,6 +59,20 @@ describe('SeededRandom', () => {
     expect(rng1.shuffle([...arr])).toEqual(rng2.shuffle([...arr]));
   });
 
+  it.each([
+    { seed: 0, label: 'zero' },
+    { seed: -5, label: 'negative' },
+    { seed: NaN, label: 'NaN' },
+    { seed: Infinity, label: 'Infinity' },
+  ])('handles degenerate seed ($label) and returns values in [0, 1)', ({ seed }) => {
+    const rng = new SeededRandom(seed);
+    for (let i = 0; i < 100; i++) {
+      const val = rng.next();
+      expect(val).toBeGreaterThanOrEqual(0);
+      expect(val).toBeLessThan(1);
+    }
+  });
+
   it('pick() returns an element from the array', () => {
     const rng = new SeededRandom(42);
     const arr = ['a', 'b', 'c'];

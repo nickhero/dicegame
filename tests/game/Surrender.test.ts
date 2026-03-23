@@ -8,6 +8,7 @@ import { GameState, createInitialGameState } from '../../src/game/GameState';
 import { Territory } from '../../src/game/Territory';
 import { createPlayer } from '../../src/game/Player';
 import { buildAdjacencyMap } from '../../src/utils/graph';
+import { createAllianceState, formAlliance } from '../../src/game/Alliance';
 
 /**
  * Build a 6-territory map for surrender tests:
@@ -111,6 +112,73 @@ describe('shouldAISurrender', () => {
     const state = createSurrenderTestState();
     state.players[1].personality = 'aggressive';
     // Player 1 has 2 territories, no good attacks
+    for (let i = 0; i < 5; i++) {
+      expect(shouldAISurrender(state, 1)).toBe(false);
+    }
+  });
+
+  it('does not surrender when charge power-up gives effective advantage', () => {
+    const state = createSurrenderTestState();
+    state.powerUpsEnabled = true;
+    // Territory 2: 2 dice + charge (+2) = effective 4 vs neighbor territory 1 with 3 dice
+    // Raw dice: 2 vs 3 = -1 advantage (would normally surrender)
+    // With charge: 4 vs 3 = +1 advantage (should NOT surrender)
+    state.territories[2].powerUp = 'charge';
+
+    for (let i = 0; i < 5; i++) {
+      expect(shouldAISurrender(state, 1)).toBe(false);
+    }
+  });
+
+  it('surrenders when power-up does not create attack advantage', () => {
+    const state = createSurrenderTestState();
+    state.powerUpsEnabled = true;
+    // Territory 2: 2 dice, neighbor territory 1 has 3 dice
+    // Shield doesn't help with attack advantage
+    state.territories[2].powerUp = 'shield';
+
+    expect(shouldAISurrender(state, 1)).toBe(false); // first desperate turn
+    expect(shouldAISurrender(state, 1)).toBe(true);  // second → surrender
+  });
+
+  it('surrenders normally when power-ups disabled even with powerUp field set', () => {
+    const state = createSurrenderTestState();
+    state.powerUpsEnabled = false;
+    state.territories[2].powerUp = 'charge';
+
+    expect(shouldAISurrender(state, 1)).toBe(false); // first desperate turn
+    expect(shouldAISurrender(state, 1)).toBe(true);  // second → surrender
+  });
+
+  it('surrenders when only attack targets are allies and AI would not break', () => {
+    const state = createSurrenderTestState();
+    // Player 1 owns territories 2, 5. Player 0 owns 0,1,3,4.
+    // Give player 1 enough dice to have raw advantage over neighbors
+    state.territories[2].dice = 5;
+
+    // Without alliance, player 1 has advantage and won't surrender
+    expect(shouldAISurrender(state, 1)).toBe(false);
+    state.consecutiveDesperate!.set(1, 0);
+
+    // Now ally player 1 (balanced) with player 0 — balanced AI won't break alliances
+    state.allianceState = createAllianceState(3);
+    formAlliance(state.allianceState, 0, 1, 0);
+
+    // All neighbors of player 1's territories are player 0 (allied)
+    // Balanced personality won't break → no valid targets → desperate
+    expect(shouldAISurrender(state, 1)).toBe(false); // first desperate turn
+    expect(shouldAISurrender(state, 1)).toBe(true);  // second → surrender
+  });
+
+  it('does not surrender when allied targets exist but AI would break alliance', () => {
+    const state = createSurrenderTestState();
+    state.players[1].personality = 'reckless';
+    state.territories[2].dice = 5;
+
+    state.allianceState = createAllianceState(3);
+    formAlliance(state.allianceState, 0, 1, 0);
+
+    // Reckless never surrenders (personality override)
     for (let i = 0; i < 5; i++) {
       expect(shouldAISurrender(state, 1)).toBe(false);
     }

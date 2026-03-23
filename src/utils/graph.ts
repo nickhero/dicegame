@@ -7,6 +7,7 @@ export function findConnectedComponents(
   nodes: number[],
   adjacency: Map<number, Set<number>>
 ): number[][] {
+  const nodeSet = new Set(nodes);
   const visited = new Set<number>();
   const components: number[][] = [];
 
@@ -22,7 +23,7 @@ export function findConnectedComponents(
       const neighbors = adjacency.get(current);
       if (neighbors) {
         for (const neighbor of neighbors) {
-          if (!visited.has(neighbor) && nodes.includes(neighbor)) {
+          if (!visited.has(neighbor) && nodeSet.has(neighbor)) {
             stack.push(neighbor);
           }
         }
