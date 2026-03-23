@@ -1507,6 +1507,7 @@ export class GameScene extends Phaser.Scene {
     this.scene.start('GameOverScene', {
       winnerName: winner?.name ?? 'Unknown',
       isVictory: winner?.isHuman ?? false,
+      spectatorMode: this.spectatorMode,
       stats,
       playerNames: this.gameState.players.map((p) => p.name),
       recording,

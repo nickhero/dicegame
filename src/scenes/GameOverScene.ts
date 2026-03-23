@@ -14,6 +14,7 @@ interface AchievementInfo {
 interface GameOverData {
   winnerName: string;
   isVictory: boolean;
+  spectatorMode?: boolean;
   stats?: GameStatsSummary;
   playerNames?: string[];
   recording?: GameRecording;
@@ -23,6 +24,7 @@ interface GameOverData {
 export class GameOverScene extends Phaser.Scene {
   private winnerName: string = '';
   private isVictory: boolean = false;
+  private spectatorMode: boolean = false;
   private stats: GameStatsSummary | null = null;
   private playerNames: string[] = [];
   private recording: GameRecording | null = null;
@@ -35,6 +37,7 @@ export class GameOverScene extends Phaser.Scene {
   init(data: GameOverData): void {
     this.winnerName = data.winnerName || 'Unknown';
     this.isVictory = data.isVictory ?? false;
+    this.spectatorMode = data.spectatorMode ?? false;
     this.stats = data.stats ?? null;
     this.playerNames = data.playerNames ?? [];
     this.recording = data.recording ?? null;
@@ -48,8 +51,8 @@ export class GameOverScene extends Phaser.Scene {
     // Title area — push up if stats present
     const titleY = hasStats ? 40 : GAME_HEIGHT / 2 - 100;
 
-    const titleText = this.isVictory ? 'VICTORY!' : 'DEFEAT';
-    const titleColor = this.isVictory ? '#4ad94a' : '#d94a4a';
+    const titleText = this.spectatorMode ? 'GAME OVER' : (this.isVictory ? 'VICTORY!' : 'DEFEAT');
+    const titleColor = this.spectatorMode ? '#4a90d9' : (this.isVictory ? '#4ad94a' : '#d94a4a');
 
     this.add.text(cx, titleY, titleText, {
       fontSize: '40px',
@@ -70,7 +73,7 @@ export class GameOverScene extends Phaser.Scene {
 
     // Achievement notifications
     if (this.newAchievements.length > 0) {
-      this.drawAchievements(cx, hasStats ? GAME_HEIGHT - 100 : GAME_HEIGHT / 2 + 10);
+      this.drawAchievements(cx, hasStats ? GAME_HEIGHT - 140 : GAME_HEIGHT / 2 + 10);
     }
 
     // Buttons — Play Again + Watch Replay + Export Log
