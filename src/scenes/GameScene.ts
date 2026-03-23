@@ -183,7 +183,9 @@ export class GameScene extends Phaser.Scene {
 
     // Setup UI callbacks
     this.uiRenderer.setEndTurnCallback(() => this.onEndTurn());
-    this.uiRenderer.setUndoCallback(() => this.undoLastAttack());
+    if (this.undoEnabled) {
+      this.uiRenderer.setUndoCallback(() => this.undoLastAttack());
+    }
     if (this.spectatorMode) {
       this.uiRenderer.setSpectatorMode(true);
     }
@@ -366,7 +368,7 @@ export class GameScene extends Phaser.Scene {
 
     const shortcuts = [
       ['E / Space', 'End turn'],
-      ['Z', 'Undo last attack'],
+      ...(this.undoEnabled ? [['Z', 'Undo last attack']] : []),
       ['Escape', 'Deselect territory'],
       ['1 / 2 / 3', 'Speed: Normal/Fast/Instant'],
       ['S', 'Surrender'],
@@ -647,7 +649,7 @@ export class GameScene extends Phaser.Scene {
     this.isProcessing = true;
 
     // Save snapshot for undo (if not already used this turn)
-    if (!this.undoUsedThisTurn) {
+    if (this.undoEnabled && !this.undoUsedThisTurn) {
       this.undoSnapshot = createSnapshot(this.gameState);
     }
 
@@ -1695,7 +1697,7 @@ export class GameScene extends Phaser.Scene {
     this.mapRenderer.drawMap(this.gameState, selectedId, validTargets, attackable, visibleSet);
     this.diceRenderer.drawDiceStacks(this.gameState.territories, visibleSet);
     this.uiRenderer.update(this.gameState);
-    this.uiRenderer.setUndoVisible(!!this.undoSnapshot && !this.undoUsedThisTurn);
+    this.uiRenderer.setUndoVisible(this.undoEnabled && !!this.undoSnapshot && !this.undoUsedThisTurn);
     this.territoryEffects.updateLowDiceWarnings(this.gameState);
   }
 

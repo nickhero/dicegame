@@ -34,6 +34,7 @@ describe('DEFAULT_SETUP', () => {
     expect(DEFAULT_SETUP.fogOfWar).toBe(false);
     expect(DEFAULT_SETUP.powerUps).toBe(false);
     expect(DEFAULT_SETUP.spectatorMode).toBe(false);
+    expect(DEFAULT_SETUP.undoEnabled).toBe(true);
   });
 
   it('has 5 AI personality slots', () => {
@@ -93,6 +94,7 @@ describe('savePreferences / loadPreferences', () => {
       fogOfWar: true,
       powerUps: true,
       spectatorMode: true,
+      undoEnabled: false,
     };
     savePreferences(custom);
     const loaded = loadPreferences();
@@ -222,5 +224,29 @@ describe('savePreferences / loadPreferences', () => {
     savePreferences({ spectatorMode: 'yes' as any });
     const loaded = loadPreferences();
     expect(loaded.spectatorMode).toBe(DEFAULT_SETUP.spectatorMode);
+  });
+
+  it('undoEnabled defaults to true', () => {
+    const loaded = loadPreferences();
+    expect(loaded.undoEnabled).toBe(true);
+  });
+
+  it('accepts boolean undoEnabled values', () => {
+    savePreferences({ undoEnabled: true });
+    expect(loadPreferences().undoEnabled).toBe(true);
+    savePreferences({ undoEnabled: false });
+    expect(loadPreferences().undoEnabled).toBe(false);
+  });
+
+  it('rejects non-boolean undoEnabled and uses default', () => {
+    savePreferences({ undoEnabled: 'yes' as any });
+    const loaded = loadPreferences();
+    expect(loaded.undoEnabled).toBe(DEFAULT_SETUP.undoEnabled);
+  });
+
+  it('handles missing undoEnabled in old configs gracefully', () => {
+    store['dicewars_preferences'] = JSON.stringify({ playerCount: 4, speed: 'fast' });
+    const loaded = loadPreferences();
+    expect(loaded.undoEnabled).toBe(true);
   });
 });
