@@ -3,6 +3,7 @@ import { authMiddleware } from '../middleware/auth';
 import { LobbyService, LobbyError } from '../services/LobbyService';
 import { ERROR_HTTP_STATUS, GameErrorCode } from '@dicewars/shared';
 import type { AppDatabase } from '../db/connection';
+import { lobbyBroadcaster } from '../ws/lobbyBroadcaster';
 
 export function createLobbyRoutes(db: AppDatabase) {
   const lobby = new Hono();
@@ -66,6 +67,7 @@ export function createLobbyRoutes(db: AppDatabase) {
         password: body.password,
         aiSlots: body.aiSlots,
       });
+      lobbyBroadcaster.broadcastGameCreated(game);
       return c.json(game, 201);
     } catch (err) {
       if (err instanceof LobbyError) {
@@ -83,6 +85,10 @@ export function createLobbyRoutes(db: AppDatabase) {
 
     try {
       await lobbyService.updateConfig(c.req.param('id'), user.sub, body.config || body);
+      const updated = await lobbyService.getGame(c.req.param('id'));
+      if (updated) {
+        lobbyBroadcaster.broadcastGameUpdated(updated);
+      }
       return c.json({ success: true });
     } catch (err) {
       if (err instanceof LobbyError) {
@@ -98,7 +104,9 @@ export function createLobbyRoutes(db: AppDatabase) {
     const user = c.get('user');
 
     try {
-      await lobbyService.cancelGame(c.req.param('id'), user.sub);
+      const gameId = c.req.param('id');
+      await lobbyService.cancelGame(gameId, user.sub);
+      lobbyBroadcaster.broadcastGameRemoved(gameId);
       return c.json({ success: true });
     } catch (err) {
       if (err instanceof LobbyError) {
@@ -115,7 +123,12 @@ export function createLobbyRoutes(db: AppDatabase) {
     const body = await c.req.json().catch(() => ({}));
 
     try {
-      await lobbyService.joinGame(c.req.param('id'), user.sub, body.password);
+      const gameId = c.req.param('id');
+      await lobbyService.joinGame(gameId, user.sub, body.password);
+      const updated = await lobbyService.getGame(gameId);
+      if (updated) {
+        lobbyBroadcaster.broadcastPlayerCount(gameId, updated.playerCount);
+      }
       return c.json({ success: true });
     } catch (err) {
       if (err instanceof LobbyError) {
@@ -131,7 +144,16 @@ export function createLobbyRoutes(db: AppDatabase) {
     const user = c.get('user');
 
     try {
-      await lobbyService.leaveGame(c.req.param('id'), user.sub);
+      const gameId = c.req.param('id');
+      await lobbyService.leaveGame(gameId, user.sub);
+      const updated = await lobbyService.getGame(gameId);
+      if (updated) {
+        if (updated.status === 'abandoned') {
+          lobbyBroadcaster.broadcastGameRemoved(gameId);
+        } else {
+          lobbyBroadcaster.broadcastPlayerCount(gameId, updated.playerCount);
+        }
+      }
       return c.json({ success: true });
     } catch (err) {
       if (err instanceof LobbyError) {
@@ -147,7 +169,9 @@ export function createLobbyRoutes(db: AppDatabase) {
     const user = c.get('user');
 
     try {
-      const game = await lobbyService.startGame(c.req.param('id'), user.sub);
+      const gameId = c.req.param('id');
+      const game = await lobbyService.startGame(gameId, user.sub);
+      lobbyBroadcaster.broadcastGameRemoved(gameId);
       return c.json(game);
     } catch (err) {
       if (err instanceof LobbyError) {

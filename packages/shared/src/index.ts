@@ -20,6 +20,8 @@ export * from './game/MatchHistory';
 export * from './game/Achievements';
 export * from './game/constants';
 export * from './game/StorageAdapter';
+export * from './game/ErrorContract';
+export * from './game/ServerTypes';
 
 // Utilities
 export * from './utils/random';

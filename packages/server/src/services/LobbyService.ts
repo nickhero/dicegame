@@ -363,4 +363,31 @@ export class LobbyService {
     const creator = this.db.select().from(users).where(eq(users.id, room.creatorId)).all();
     return toSummary(room, creator[0]?.displayName || 'Unknown');
   }
+
+  async cleanupStaleRooms(maxAgeMinutes = 10): Promise<string[]> {
+    const cutoff = new Date(Date.now() - maxAgeMinutes * 60 * 1000).toISOString();
+    const staleRooms = this.db
+      .select()
+      .from(gameRooms)
+      .where(
+        and(
+          eq(gameRooms.status, 'waiting'),
+          eq(gameRooms.currentPlayerCount, 0),
+        ),
+      )
+      .all()
+      .filter((room) => room.createdAt < cutoff);
+
+    const removedIds: string[] = [];
+    for (const room of staleRooms) {
+      this.db.delete(gamePlayers).where(eq(gamePlayers.gameId, room.id)).run();
+      this.db
+        .update(gameRooms)
+        .set({ status: 'abandoned' })
+        .where(eq(gameRooms.id, room.id))
+        .run();
+      removedIds.push(room.id);
+    }
+    return removedIds;
+  }
 }
