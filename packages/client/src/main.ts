@@ -8,6 +8,9 @@ import { SetupScene } from './scenes/SetupScene';
 import { GameOverScene } from './scenes/GameOverScene';
 import { ReplayScene } from './scenes/ReplayScene';
 import { HistoryScene } from './scenes/HistoryScene';
+import { LoginScene } from './scenes/LoginScene';
+import { LobbyScene } from './scenes/LobbyScene';
+import { WaitingRoomScene } from './scenes/WaitingRoomScene';
 
 // Wire up localStorage for the client
 setStorageAdapter({
@@ -18,7 +21,7 @@ setStorageAdapter({
 
 const config: Phaser.Types.Core.GameConfig = {
   ...gameConfig,
-  scene: [BootScene, MenuScene, SetupScene, GameScene, GameOverScene, ReplayScene, HistoryScene],
+  scene: [BootScene, MenuScene, SetupScene, GameScene, GameOverScene, ReplayScene, HistoryScene, LoginScene, LobbyScene, WaitingRoomScene],
 };
 
 new Phaser.Game(config);

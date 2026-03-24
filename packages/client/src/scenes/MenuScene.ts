@@ -29,15 +29,20 @@ export class MenuScene extends Phaser.Scene {
       fontFamily: 'monospace',
     }).setOrigin(0.5);
 
-    // Start button
-    this.createMenuButton(cx, cy + 45, 'START GAME', 0x4a90d9, 0x6ab0f9, () => {
+    // Start button (local)
+    this.createMenuButton(cx, cy + 20, 'LOCAL GAME', 0x4a90d9, 0x6ab0f9, () => {
       this.scene.start('SetupScene');
+    });
+
+    // Play Online button
+    this.createMenuButton(cx, cy + 85, 'PLAY ONLINE', 0x4ad9a5, 0x6af9c5, () => {
+      this.scene.start('LoginScene');
     });
 
     // Match History button
     const historyCount = loadHistory().length;
     const historyLabel = historyCount > 0 ? `MATCH HISTORY (${historyCount})` : 'MATCH HISTORY';
-    this.createMenuButton(cx, cy + 110, historyLabel, 0x905ad9, 0xb07af9, () => {
+    this.createMenuButton(cx, cy + 150, historyLabel, 0x905ad9, 0xb07af9, () => {
       this.scene.start('HistoryScene');
     });
 
@@ -45,7 +50,7 @@ export class MenuScene extends Phaser.Scene {
     const achievements = getAchievementStatus();
     const unlockedCount = achievements.filter(a => a.unlocked).length;
     const achieveLabel = `ACHIEVEMENTS (${unlockedCount}/${achievements.length})`;
-    this.createMenuButton(cx, cy + 175, achieveLabel, 0xd99a4a, 0xf9ba6a, () => {
+    this.createMenuButton(cx, cy + 215, achieveLabel, 0xd99a4a, 0xf9ba6a, () => {
       this.showAchievements();
     });
 
