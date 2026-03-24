@@ -26,3 +26,27 @@ export interface ApiError {
     message: string;
   };
 }
+
+export interface CreateGameRequest {
+  name: string;
+  config: {
+    playerCount: number;
+    territoryCount: number;
+    mapShape: string;
+    gridType: string;
+    speed: string;
+    powerUps: boolean;
+    fogOfWar: boolean;
+    alliances: boolean;
+    undoEnabled: boolean;
+  };
+  password?: string;
+  aiSlots?: Array<{
+    slot: number;
+    personality: string;
+  }>;
+}
+
+export interface JoinGameRequest {
+  password?: string;
+}
