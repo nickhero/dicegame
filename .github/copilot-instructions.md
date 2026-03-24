@@ -2,20 +2,36 @@
 
 ## Project Overview
 
-DiceWars is a browser-based 2D pixel art strategy game inspired by DiceWars/KDice. Built with **Phaser 3 + TypeScript + Vite**, tested with **Vitest**. Single-player vs AI opponents on a randomly generated territory map.
+DiceWars is a browser-based 2D pixel art strategy game inspired by DiceWars/KDice. Built with **Phaser 3 + TypeScript + Vite**, tested with **Vitest**. Multiplayer-ready with a server-authoritative backend.
 
 ## Architecture — CRITICAL
 
-The codebase enforces a strict separation between **game logic** and **rendering**:
+This is a **monorepo** (npm workspaces) with three packages:
 
 ```
-src/game/       ← Pure TypeScript. ZERO Phaser imports. All game rules live here.
-src/rendering/  ← Phaser rendering code. Reads GameState, draws visuals.
-src/scenes/     ← Phaser scenes. Thin wiring between game logic and renderers.
-src/utils/      ← Pure TypeScript utilities (RNG, graph algorithms).
+packages/
+├── shared/    ← @dicewars/shared — Pure TypeScript game logic + utilities.
+│              ZERO browser APIs, ZERO Phaser, ZERO Node.js-specific APIs.
+│              Authoritative source of all game rules, AI, data structures.
+│
+├── server/    ← @dicewars/server — Hono backend (REST + Socket.IO).
+│              Server-authoritative game engine. Validates & executes all moves.
+│              Imports game logic from @dicewars/shared.
+│
+└── client/    ← @dicewars/client — Phaser 3 frontend (thin renderer).
+               Sends player intents via WebSocket. Renders state from server.
+               Imports types from @dicewars/shared (read-only validation OK).
 ```
 
-### Rendering (src/rendering/)
+### Package boundaries
+
+1. **`shared`** has ZERO dependencies on `server` or `client`. No browser APIs, no Node.js APIs, no Phaser.
+2. **`server`** imports from `@dicewars/shared`. Never imports from `client`.
+3. **`client`** imports from `@dicewars/shared`. Never imports from `server`. Never calls game-mutating functions directly — sends intents via WebSocket.
+4. All game logic must be unit-testable without a browser or DOM.
+5. Rendering code should be **stateless** — it reads from `GameState` and draws. No game decisions in rendering.
+
+### Client rendering (packages/client/src/rendering/)
 
 | File | Purpose |
 |------|---------|
@@ -27,7 +43,7 @@ src/utils/      ← Pure TypeScript utilities (RNG, graph algorithms).
 | `EventLog.ts` | Scrollable event log panel |
 | `SoundManager.ts` | Procedural Web Audio sound effects |
 
-### Scenes (src/scenes/)
+### Client scenes (packages/client/src/scenes/)
 
 | File | Purpose |
 |------|---------|
@@ -39,19 +55,14 @@ src/utils/      ← Pure TypeScript utilities (RNG, graph algorithms).
 | `ReplayScene.ts` | Game replay playback |
 | `HistoryScene.ts` | Match history browser |
 
-### Rules for this separation
-
-1. **Never** add `import Phaser` or `import ... from 'phaser'` to any file in `src/game/` or `src/utils/`.
-2. All game logic must be unit-testable without a browser or DOM.
-3. Rendering code should be **stateless** — it reads from `GameState` and draws. No game decisions in rendering.
-4. Constants shared between game logic and rendering live in `src/game/constants.ts` (no Phaser dependency). `src/config.ts` re-exports them and adds the Phaser config.
-
 ## Tech Stack
 
 | Layer | Tech | Version |
 |-------|------|---------|
 | Runtime | Node.js | 24 (see .nvmrc) |
+| Monorepo | npm workspaces | — |
 | Framework | Phaser 3 | ^3.88 |
+| Backend | Hono + Socket.IO | — |
 | Language | TypeScript | ^5.x |
 | Bundler | Vite | ^5.x |
 | Test Runner | Vitest | ^2.x |
@@ -59,14 +70,17 @@ src/utils/      ← Pure TypeScript utilities (RNG, graph algorithms).
 ## Commands
 
 ```bash
-nvm use            # Use correct Node version
-npm run dev        # Start dev server on http://localhost:3000
-npm run build      # Type-check + production build
-npm run test       # Run all unit tests
-npm run typecheck  # Type-check only (no emit)
+nvm use                # Use correct Node version
+npm run dev            # Start Vite client dev server on :3000
+npm run dev:server     # Start Hono server on :3001 (tsx watch)
+npm run build          # Build shared + client for production
+npm run test           # Run shared package tests
+npm run test:server    # Run server package tests
+npm run test:all       # Run all tests (shared + server)
+npm run typecheck      # Type-check all packages (tsc --build)
 ```
 
-## Game Logic (src/game/)
+## Game Logic (packages/shared/src/game/)
 
 | File | Purpose |
 |------|---------|
@@ -80,16 +94,17 @@ npm run typecheck  # Type-check only (no emit)
 | `GameRules.ts` | Attack validation, execution, turn flow, dice distribution, surrender |
 | `AIPlayer.ts` | AI opponent logic with personality-based strategy |
 | `AIPersonality.ts` | 6 AI personality type definitions + config |
-| `GameConfig.ts` | Game setup config, speed options, localStorage persistence |
+| `GameConfig.ts` | Game setup config, speed options |
 | `GameRecorder.ts` | Action recording for replay & stats, GameAction types |
 | `GameStats.ts` | Live stats tracking + `computeFromRecording()` for history |
 | `GameStateSnapshot.ts` | Snapshot/restore for undo system |
 | `EventFormatter.ts` | GameAction → display text with emoji/colors |
-| `MatchHistory.ts` | Match history localStorage persistence |
+| `MatchHistory.ts` | Match history persistence (via StorageAdapter) |
 | `PowerUps.ts` | Shield, Charge, Fortify, Reinforce power-ups |
 | `FogOfWar.ts` | Visibility computation for fog of war mode |
 | `Alliance.ts` | Alliance system, reputation, AI diplomacy |
 | `Achievements.ts` | 12 achievements with check functions |
+| `StorageAdapter.ts` | Pluggable storage abstraction (no direct localStorage) |
 
 ## Key Patterns
 
@@ -110,7 +125,11 @@ Power-ups (Shield, Charge, Fortify, Reinforce) add tactical depth. Fog of war li
 
 ## Testing
 
-Tests live in `tests/` mirroring `src/` structure (355+ tests). All tests run against pure game logic — no DOM, no Phaser.
+Tests live in each package's `tests/` directory. All game logic tests run against pure TypeScript — no DOM, no Phaser.
+
+- **Shared**: 462+ tests in `packages/shared/tests/` — `npm run test`
+- **Server**: Route/service tests in `packages/server/tests/` — `npm run test:server`
+- **All**: `npm run test:all`
 
 When modifying game logic, always run `npm run test` to verify. When modifying rendering, run `npm run typecheck` at minimum.
 
@@ -123,10 +142,13 @@ All visuals are programmatic — no external image assets. Dice textures are gen
 
 ## When Making Changes
 
-1. **Game rules change?** → Modify `src/game/`, add/update tests in `tests/game/`, run `npm test`
-2. **Visual change?** → Modify `src/rendering/`, run `npm run typecheck`, verify in browser
-3. **New feature?** → Start with the game logic (testable), then wire up rendering
-4. **Adding constants?** → Put in `src/game/constants.ts` if needed by game logic, or `src/config.ts` if Phaser-only
+1. **Game rules change?** → Modify `packages/shared/`, add/update tests, run `npm run test`
+2. **Visual change?** → Modify `packages/client/src/rendering/`, run `npm run typecheck`, verify in browser
+3. **New feature?** → Start with game logic in `shared` (testable), then wire up server + client
+4. **Adding constants?** → Put in `packages/shared/src/game/constants.ts`
+5. **New API endpoint?** → Add route in `packages/server/src/routes/`, test with `app.request()`
+6. **Multiplayer event?** → Define types in `packages/server/src/types/events.ts`, handle in both server and client
+7. **Cross-package types?** → Define in `packages/shared`, import as `@dicewars/shared`
 
 ## Versioning & Commits
 
@@ -159,7 +181,7 @@ Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
 | `test` | Adding/updating tests only | none |
 | `chore` | Build, config, tooling changes | none |
 
-**Scopes** (optional): `game`, `ai`, `ui`, `rendering`, `replay`, `history`, `config`, `map`
+**Scopes** (optional): `game`, `ai`, `ui`, `rendering`, `replay`, `history`, `config`, `map`, `server`, `shared`, `client`
 
 **Examples:**
 ```
