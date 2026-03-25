@@ -4,8 +4,14 @@ import { createApp } from './app';
 import { createSocketServer } from './ws';
 import { config } from './config';
 import { getDb } from './db/connection';
+import { runMigrations } from './db/migrate';
 import { lobbyBroadcaster } from './ws/lobbyBroadcaster';
 import { startCleanupJob } from './ws/cleanupJob';
+
+// Run database migrations before anything else
+if (config.nodeEnv !== 'test') {
+  runMigrations(config.databaseUrl || 'dicewars.db');
+}
 
 const app = createApp();
 

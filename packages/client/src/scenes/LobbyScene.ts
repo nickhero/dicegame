@@ -105,7 +105,7 @@ export class LobbyScene extends Phaser.Scene {
     });
 
     // Invite code input
-    const inviteY = GAME_HEIGHT - 115;
+    const inviteY = GAME_HEIGHT - 140;
     const inviteInputW = 200;
     const inviteInputH = 34;
     const inviteInputX = cx - 160;
