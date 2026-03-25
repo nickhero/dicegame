@@ -1,7 +1,7 @@
 import type { Namespace } from 'socket.io';
 import type { ActiveGame } from './GameEngine';
 import { GameEngine } from './GameEngine';
-import { serializeFullState } from './FogFilter';
+import { serializeFullState, filterStateForPlayer } from './FogFilter';
 import {
   SERVER_TIMING,
   type SpeedMode,
@@ -29,6 +29,7 @@ export class AITurnRunner {
   constructor(
     private gameEngine: GameEngine,
     private gameNamespace: Namespace,
+    private onGameEnd?: (gameId: string, game: ActiveGame) => void,
   ) {}
 
   /**
@@ -367,7 +368,16 @@ export class AITurnRunner {
   }
 
   private emitStateUpdate(gameId: string, game: ActiveGame): void {
-    this.gameNamespace.to(`game:${gameId}`).emit('game:stateUpdate', serializeFullState(game));
+    if (game.config.fogOfWar && this.gameNamespace.sockets) {
+      for (const [, socket] of this.gameNamespace.sockets) {
+        if (socket.rooms.has(`game:${gameId}`) && socket.data.userId) {
+          const playerIndex = game.playerMap.get(socket.data.userId as string) ?? -1;
+          socket.emit('game:stateUpdate', filterStateForPlayer(game, playerIndex));
+        }
+      }
+    } else {
+      this.gameNamespace.to(`game:${gameId}`).emit('game:stateUpdate', serializeFullState(game));
+    }
   }
 
   private emitTurnChanged(
@@ -389,18 +399,34 @@ export class AITurnRunner {
   }
 
   private emitGameOver(gameId: string, winnerIndex: number): void {
+    const game = this.gameEngine.getGame(gameId);
     this.gameNamespace.to(`game:${gameId}`).emit('game:gameOver', {
       winnerIndex,
       stats: {},
     });
+    if (game && this.onGameEnd) {
+      this.onGameEnd(gameId, game);
+    }
     setTimeout(() => this.gameEngine.destroyGame(gameId), GAME_CLEANUP_DELAY_MS);
   }
 
   private emitInstantBatch(gameId: string, game: ActiveGame, actions: AIActionPayload[]): void {
-    this.gameNamespace.to(`game:${gameId}`).emit('game:instantBatch', {
-      actions,
-      finalState: serializeFullState(game),
-    });
+    if (game.config.fogOfWar && this.gameNamespace.sockets) {
+      for (const [, socket] of this.gameNamespace.sockets) {
+        if (socket.rooms.has(`game:${gameId}`) && socket.data.userId) {
+          const playerIndex = game.playerMap.get(socket.data.userId as string) ?? -1;
+          socket.emit('game:instantBatch', {
+            actions,
+            finalState: filterStateForPlayer(game, playerIndex),
+          });
+        }
+      }
+    } else {
+      this.gameNamespace.to(`game:${gameId}`).emit('game:instantBatch', {
+        actions,
+        finalState: serializeFullState(game),
+      });
+    }
   }
 
   private delay(ms: number): Promise<void> {

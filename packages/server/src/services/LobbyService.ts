@@ -323,6 +323,8 @@ export class LobbyService {
     const existingConfig = (typeof room.config === 'string' ? JSON.parse(room.config) : room.config) as Record<string, unknown>;
     const mergedConfig = { ...existingConfig, ...config };
 
+    validateConfig(mergedConfig as CreateGameRequest['config']);
+
     this.db
       .update(gameRooms)
       .set({ config: mergedConfig })

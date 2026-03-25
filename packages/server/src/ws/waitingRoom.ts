@@ -287,6 +287,13 @@ export function setupWaitingRoomHandlers(
           });
         }
 
+        if (slotIndex < 0 || slotIndex >= room.maxPlayers) {
+          return ack({
+            success: false,
+            error: { code: GameErrorCode.LOBBY_INVALID_CONFIG, message: 'Invalid slot index' },
+          });
+        }
+
         const playerRows = database
           .select()
           .from(gamePlayers)
@@ -450,6 +457,13 @@ export function setupWaitingRoomHandlers(
           return ack({
             success: false,
             error: { code: GameErrorCode.LOBBY_GAME_STARTED, message: 'Game is not in waiting status' },
+          });
+        }
+
+        if (fromSlot < 0 || fromSlot >= room.maxPlayers || toSlot < 0 || toSlot >= room.maxPlayers) {
+          return ack({
+            success: false,
+            error: { code: GameErrorCode.LOBBY_INVALID_CONFIG, message: 'Invalid slot index' },
           });
         }
 

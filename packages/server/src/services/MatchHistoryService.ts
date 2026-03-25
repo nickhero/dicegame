@@ -214,11 +214,12 @@ export class MatchHistoryService {
   }
 
   /**
-   * Delete a match if it belongs to the given user.
-   * Returns true if the match was found and deleted, false otherwise.
+   * Remove a match from the given user's history (per-user soft delete).
+   * Only the user's matchPlayers row is removed. The match itself is only
+   * deleted when no participants remain.
    */
   async deleteMatch(matchId: string, userId: string): Promise<boolean> {
-    // Verify the match exists and the user participated
+    // Verify the user participated
     const userParticipation = this.db
       .select()
       .from(matchPlayers)
@@ -227,11 +228,21 @@ export class MatchHistoryService {
 
     if (userParticipation.length === 0) return false;
 
-    // Delete match_players rows first (foreign key)
-    this.db.delete(matchPlayers).where(eq(matchPlayers.matchId, matchId)).run();
+    // Remove only this user's participation record
+    this.db.delete(matchPlayers)
+      .where(and(eq(matchPlayers.matchId, matchId), eq(matchPlayers.userId, userId)))
+      .run();
 
-    // Delete the match row
-    this.db.delete(matches).where(eq(matches.id, matchId)).run();
+    // If no participants remain, clean up the match itself
+    const remaining = this.db
+      .select()
+      .from(matchPlayers)
+      .where(eq(matchPlayers.matchId, matchId))
+      .all();
+
+    if (remaining.length === 0) {
+      this.db.delete(matches).where(eq(matches.id, matchId)).run();
+    }
 
     return true;
   }

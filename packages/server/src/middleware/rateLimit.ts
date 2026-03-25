@@ -26,6 +26,9 @@ export function rateLimit(options: { maxRequests: number; windowMs: number }) {
       return;
     }
 
+    // WARNING: These headers are only trustworthy behind a reverse proxy that
+    // strips/overwrites them. Without one, clients can spoof their IP to bypass
+    // rate limiting. Configure your proxy to set X-Real-IP from the actual connection.
     const ip =
       c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ||
       c.req.header('x-real-ip') ||

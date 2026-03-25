@@ -92,8 +92,15 @@ export function createLobbyRoutes(db: AppDatabase) {
     const user = c.get('user');
     const body = await c.req.json().catch(() => ({}));
 
+    if (!body.config) {
+      return c.json(
+        { error: { code: GameErrorCode.LOBBY_INVALID_CONFIG, message: 'Config is required' } },
+        400,
+      );
+    }
+
     try {
-      await lobbyService.updateConfig(c.req.param('id'), user.sub, body.config || body);
+      await lobbyService.updateConfig(c.req.param('id'), user.sub, body.config);
       const updated = await lobbyService.getGame(c.req.param('id'));
       if (updated) {
         lobbyBroadcaster.broadcastGameUpdated(updated);

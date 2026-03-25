@@ -1,6 +1,7 @@
 import type { Namespace } from 'socket.io';
 import type { GameEngine, ActiveGame } from './GameEngine';
 import { serializeFullState } from './FogFilter';
+import type { AITurnRunner } from './AITurnRunner';
 
 export type TurnTimerDuration = 30 | 60 | 90 | 0; // 0 = unlimited
 
@@ -16,6 +17,7 @@ export class TurnTimer {
   constructor(
     private gameEngine: GameEngine,
     private gameNamespace: Namespace,
+    private aiTurnRunner?: AITurnRunner,
   ) {}
 
   /** Start timer for a human player's turn. */
@@ -101,12 +103,9 @@ export class TurnTimer {
         .to(`game:${gameId}`)
         .emit('game:stateUpdate', serializeFullState(game));
 
-      // Signal AI turn if next player is AI
-      if (game.aiPlayerIndices.has(result.nextPlayerIndex)) {
-        this.gameNamespace.emit('_internal:aiTurnNeeded' as never, {
-          gameId,
-          playerIndex: result.nextPlayerIndex,
-        } as never);
+      // Trigger AI turn if next player is AI
+      if (game.aiPlayerIndices.has(result.nextPlayerIndex) && this.aiTurnRunner) {
+        this.aiTurnRunner.runAITurns(gameId);
       }
     } catch (err) {
       console.error(`[Timer] Auto end turn failed for ${gameId}:`, err);

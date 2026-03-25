@@ -13,6 +13,7 @@ export function setupDisconnectHandler(
   socket: Socket,
   gameNamespace: Namespace,
   gameEngine: GameEngine,
+  aiTurnRunner?: import('../services/AITurnRunner').AITurnRunner,
 ): void {
   socket.on('disconnect', () => {
     const gameId = socket.data.gameId;
@@ -50,9 +51,11 @@ export function setupDisconnectHandler(
 
     // Start grace timer
     const key = `${gameId}:${userId}`;
+    const existing = gracePeriods.get(key);
+    if (existing) clearTimeout(existing);
     const timer = setTimeout(() => {
       gracePeriods.delete(key);
-      convertToAI(gameId, userId, playerIndex, gameEngine, gameNamespace);
+      convertToAI(gameId, userId, playerIndex, gameEngine, gameNamespace, aiTurnRunner);
     }, GRACE_PERIOD_MS);
 
     gracePeriods.set(key, timer);
@@ -127,6 +130,7 @@ function convertToAI(
   playerIndex: number,
   gameEngine: GameEngine,
   gameNamespace: Namespace,
+  aiTurnRunner?: import('../services/AITurnRunner').AITurnRunner,
 ): void {
   const game = gameEngine.getGame(gameId);
   if (!game || game.status !== 'playing') return;
@@ -148,12 +152,9 @@ function convertToAI(
     .to(`game:${gameId}`)
     .emit('game:stateUpdate', serializeGameState(game));
 
-  // If it's this player's turn, signal AI turn needed
-  if (game.state.currentPlayerIndex === playerIndex) {
-    gameNamespace.emit('_internal:aiTurnNeeded' as never, {
-      gameId,
-      playerIndex,
-    } as never);
+  // If it's this player's turn, trigger AI turn directly
+  if (game.state.currentPlayerIndex === playerIndex && aiTurnRunner) {
+    aiTurnRunner.runAITurns(gameId);
   }
 }
 

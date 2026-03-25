@@ -92,8 +92,8 @@ function setupLobbyNamespace(io: TypedServer, db: AppDatabase) {
 
 function setupGameNamespace(io: TypedServer, db: AppDatabase) {
   const game = io.of('/game');
-  const aiTurnRunner = initAITurnRunner(game);
-  const turnTimer = initTurnTimer(game);
+  const aiTurnRunner = initAITurnRunner(game, db);
+  const turnTimer = initTurnTimer(game, aiTurnRunner);
 
   game.use(verifySocketToken);
 
@@ -103,7 +103,7 @@ function setupGameNamespace(io: TypedServer, db: AppDatabase) {
     setupWaitingRoomHandlers(socket, game, gameEngine, db, aiTurnRunner);
     setupGameActionHandlers(socket, game, gameEngine, db, aiTurnRunner, turnTimer);
     setupSpectatorHandlers(socket, game, gameEngine, db);
-    setupDisconnectHandler(socket, game, gameEngine);
+    setupDisconnectHandler(socket, game, gameEngine, aiTurnRunner);
     setupReconnectHandler(socket, game, gameEngine);
 
     socket.on('disconnect', (reason) => {

@@ -17,8 +17,10 @@ import {
   createAllianceState,
   areAllied,
   formAlliance,
+  breakAlliance,
   wouldBreakAlliance,
   largestContiguousGroup,
+  MAX_DICE_PER_TERRITORY,
 } from '@dicewars/shared';
 import type { GameState, MapShape, StateSnapshot, Player } from '@dicewars/shared';
 
@@ -101,7 +103,7 @@ export class GameEngine {
     const rng = new SeededRandom(seed);
 
     // Generate map
-    const gridType = 'square' as const;
+    const gridType = (config.gridType || 'square') as 'square' | 'hex';
     const mapShape = (config.mapShape || 'rectangle') as MapShape;
     const { territories, adjacency } = generateMap(
       config.territoryCount,
@@ -276,13 +278,34 @@ export class GameEngine {
       throw new GameEngineError(GameErrorCode.GAME_ALLIANCE_ALREADY_ALLIED, 'Already allied');
     }
 
-    formAlliance(allianceState, playerIndex, targetPlayerIndex, game.state.turnNumber);
-    game.recorder.recordAction({
-      type: 'allianceFormed',
-      player1: playerIndex,
-      player2: targetPlayerIndex,
-      duration: 5,
-    });
+    // Check for duplicate proposal
+    const existingProposal = allianceState.proposals.find(
+      (p) => p.fromPlayer === playerIndex && p.toPlayer === targetPlayerIndex,
+    );
+    if (existingProposal) {
+      throw new GameEngineError(GameErrorCode.GAME_ALLIANCE_INVALID_TARGET, 'Alliance already proposed');
+    }
+
+    // Check if the target already proposed to us — auto-accept
+    const reverseIdx = allianceState.proposals.findIndex(
+      (p) => p.fromPlayer === targetPlayerIndex && p.toPlayer === playerIndex,
+    );
+    if (reverseIdx !== -1) {
+      allianceState.proposals.splice(reverseIdx, 1);
+      formAlliance(allianceState, playerIndex, targetPlayerIndex, game.state.turnNumber);
+      game.recorder.recordAction({
+        type: 'allianceFormed',
+        player1: playerIndex,
+        player2: targetPlayerIndex,
+        duration: 5,
+      });
+    } else {
+      allianceState.proposals.push({
+        fromPlayer: playerIndex,
+        toPlayer: targetPlayerIndex,
+        duration: 5,
+      });
+    }
   }
 
   respondAlliance(
@@ -396,13 +419,13 @@ export class GameEngine {
       throw new GameEngineError(GameErrorCode.GAME_TERRITORY_OWN, 'Cannot attack own territory');
     }
 
-    // Check alliance
+    // Break alliance if attacking an ally
     if (
       game.config.alliances &&
       game.state.allianceState &&
       wouldBreakAlliance(game.state.allianceState, playerIndex, to.owner)
     ) {
-      throw new GameEngineError(GameErrorCode.GAME_ALLIED_TERRITORY, 'Cannot attack allied territory');
+      breakAlliance(game.state.allianceState, playerIndex, to.owner);
     }
 
     // Snapshot for undo (if enabled and first attack this turn)
@@ -532,8 +555,10 @@ export class GameEngine {
       if (source.owner !== playerIndex) {
         throw new GameEngineError(GameErrorCode.GAME_TERRITORY_NOT_OWNED, 'You do not own the source territory');
       }
-      // Calculate dice to move (up to 3, keeping at least 1)
-      const diceCount = Math.min(3, source.dice - 1);
+      // Calculate dice to move (up to 3, keeping at least 1, clamped to target capacity)
+      const target2 = game.state.territories[targetTerritoryId];
+      const targetCapacity = target2 ? MAX_DICE_PER_TERRITORY - target2.dice : 0;
+      const diceCount = Math.min(3, source.dice - 1, targetCapacity);
       const success = useFortify(sourceTerritoryId, targetTerritoryId, diceCount, game.state);
       if (!success) {
         throw new GameEngineError(GameErrorCode.GAME_POWERUP_INVALID_TARGET, 'Fortify failed');
@@ -569,7 +594,7 @@ export class GameEngine {
   private surrenderForPlayer(
     game: ActiveGame,
     playerIndex: number,
-  ): { gameOver?: { winnerIndex: number } } {
+  ): { gameOver?: { winnerIndex: number }; turnAdvanced?: { nextPlayerIndex: number } } {
     const player = game.state.players[playerIndex];
     if (!player.isAlive) {
       throw new GameEngineError(GameErrorCode.GAME_ALREADY_OVER, 'Player is already eliminated');
@@ -583,12 +608,22 @@ export class GameEngine {
     });
 
     let gameOver: { winnerIndex: number } | undefined;
+    let turnAdvanced: { nextPlayerIndex: number } | undefined;
+
     if (game.state.winner !== null) {
       gameOver = { winnerIndex: game.state.winner };
       game.status = 'finished';
+    } else if (game.state.currentPlayerIndex === playerIndex) {
+      // Advance past the now-dead player
+      let next = (playerIndex + 1) % game.state.players.length;
+      while (!game.state.players[next].isAlive && next !== playerIndex) {
+        next = (next + 1) % game.state.players.length;
+      }
+      game.state.currentPlayerIndex = next;
+      turnAdvanced = { nextPlayerIndex: next };
     }
 
-    return { gameOver };
+    return { gameOver, turnAdvanced };
   }
 
   // --- Helpers ---

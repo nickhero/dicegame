@@ -315,7 +315,7 @@ describe('GameEngine', () => {
       }
     });
 
-    it('rejects attack on allied territory', () => {
+    it('breaks alliance when attacking allied territory', () => {
       // Create game with alliances enabled
       const config = makeConfig({ seed: '42', alliances: true });
       const slots = makeSlots(4, 2);
@@ -330,18 +330,15 @@ describe('GameEngine', () => {
 
       const enemyOwner = game.state.territories[enemyNId].owner;
 
-      // Form an alliance between player 0 and enemy owner
+      // Form an alliance (mutual proposals = auto-accept)
       engine.proposeAlliance(roomId, 'user-0', enemyOwner);
+      engine.proposeAlliance(roomId, `user-${enemyOwner}`, 0);
+      expect(areAllied(game.state.allianceState!, 0, enemyOwner)).toBe(true);
 
-      expect(() =>
-        engine.executeAttack(roomId, 'user-0', owned.id, enemyNId),
-      ).toThrow(GameEngineError);
-
-      try {
-        engine.executeAttack(roomId, 'user-0', owned.id, enemyNId);
-      } catch (e) {
-        expect((e as GameEngineError).code).toBe(GameErrorCode.GAME_ALLIED_TERRITORY);
-      }
+      // Attack should succeed and break the alliance
+      owned.dice = 8; // Ensure enough dice
+      engine.executeAttack(roomId, 'user-0', owned.id, enemyNId);
+      expect(areAllied(game.state.allianceState!, 0, enemyOwner)).toBe(false);
     });
 
     it('detects elimination', () => {
@@ -701,13 +698,18 @@ describe('GameEngine', () => {
   // --- proposeAlliance ---
 
   describe('proposeAlliance', () => {
-    it('creates alliance', () => {
+    it('creates alliance proposal (forms on mutual)', () => {
       const config = makeConfig({ seed: '42', alliances: true });
       const slots = makeSlots(4, 2);
       const game = engine.createGame(roomId, config, slots);
 
+      // First propose creates a proposal, not an alliance
       engine.proposeAlliance(roomId, 'user-0', 1);
+      expect(areAllied(game.state.allianceState!, 0, 1)).toBe(false);
+      expect(game.state.allianceState!.proposals.length).toBe(1);
 
+      // Mutual proposal auto-accepts
+      engine.proposeAlliance(roomId, 'user-1', 0);
       expect(areAllied(game.state.allianceState!, 0, 1)).toBe(true);
     });
 
@@ -733,7 +735,7 @@ describe('GameEngine', () => {
       }
     });
 
-    it('rejects duplicate alliance', () => {
+    it('rejects duplicate proposal', () => {
       engine.createGame(roomId, makeConfig({ seed: '42', alliances: true }), makeSlots(4, 2));
 
       engine.proposeAlliance(roomId, 'user-0', 1);
@@ -741,7 +743,7 @@ describe('GameEngine', () => {
       try {
         engine.proposeAlliance(roomId, 'user-0', 1);
       } catch (e) {
-        expect((e as GameEngineError).code).toBe(GameErrorCode.GAME_ALLIANCE_ALREADY_ALLIED);
+        expect((e as GameEngineError).code).toBe(GameErrorCode.GAME_ALLIANCE_INVALID_TARGET);
       }
     });
   });
