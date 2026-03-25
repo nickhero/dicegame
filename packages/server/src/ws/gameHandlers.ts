@@ -1,19 +1,47 @@
 import type { Namespace, Socket } from 'socket.io';
 import type { GameErrorCode } from '@dicewars/shared';
 import { GameEngine, GameEngineError } from '../services/GameEngine';
+import type { ActiveGame } from '../services/GameEngine';
 import { serializeGameState } from './serializeState';
 import type { AITurnRunner } from '../services/AITurnRunner';
+import type { AppDatabase } from '../db/connection';
+import { MatchHistoryService } from '../services/MatchHistoryService';
+import { AchievementService } from '../services/AchievementService';
 
 const GAME_CLEANUP_DELAY_MS = 5 * 60 * 1000;
+
+const SPECTATOR_ERROR = { code: 'SPECTATOR_CANNOT_ACT' as GameErrorCode, message: 'Spectators cannot perform game actions' };
+
+async function handleGameEnd(gameId: string, game: ActiveGame, db: AppDatabase) {
+  try {
+    const matchService = new MatchHistoryService(db);
+    const achievementService = new AchievementService(db);
+
+    const matchId = await matchService.saveMatch(gameId, game);
+
+    // Check achievements for each human player
+    for (const [userId, playerIndex] of game.playerMap) {
+      if (!game.aiPlayerIndices.has(playerIndex)) {
+        await achievementService.checkAndUnlock(userId, game, matchId);
+      }
+    }
+  } catch (err) {
+    console.error('[GameEnd] Failed to save match or check achievements:', err);
+  }
+}
 
 export function setupGameActionHandlers(
   socket: Socket,
   gameNamespace: Namespace,
   gameEngine: GameEngine,
+  db: AppDatabase,
   aiTurnRunner?: AITurnRunner,
 ): void {
   // game:attack — Player attacks a territory
   socket.on('game:attack', ({ fromTerritoryId, toTerritoryId }, ack) => {
+    if (socket.data.isSpectator) {
+      return ack({ success: false, error: SPECTATOR_ERROR });
+    }
     const gameId = socket.data.gameId;
     if (!gameId) {
       return ack({ success: false, error: { code: 'CONNECTION_NOT_IN_GAME' as GameErrorCode, message: 'Not in a game' } });
@@ -48,6 +76,7 @@ export function setupGameActionHandlers(
           winnerIndex: result.gameOver.winnerIndex,
           stats: {},
         });
+        handleGameEnd(gameId, updatedGame, db);
         setTimeout(() => gameEngine.destroyGame(gameId), GAME_CLEANUP_DELAY_MS);
       }
 
@@ -59,6 +88,9 @@ export function setupGameActionHandlers(
 
   // game:endTurn — End current turn
   socket.on('game:endTurn', (ack) => {
+    if (socket.data.isSpectator) {
+      return ack({ success: false, error: SPECTATOR_ERROR });
+    }
     const gameId = socket.data.gameId;
     if (!gameId) {
       return ack({ success: false, error: { code: 'CONNECTION_NOT_IN_GAME' as GameErrorCode, message: 'Not in a game' } });
@@ -98,6 +130,9 @@ export function setupGameActionHandlers(
 
   // game:usePowerUp — Use a power-up
   socket.on('game:usePowerUp', ({ type, targetTerritoryId, sourceTerritoryId }, ack) => {
+    if (socket.data.isSpectator) {
+      return ack({ success: false, error: SPECTATOR_ERROR });
+    }
     const gameId = socket.data.gameId;
     if (!gameId) {
       return ack({ success: false, error: { code: 'CONNECTION_NOT_IN_GAME' as GameErrorCode, message: 'Not in a game' } });
@@ -117,6 +152,9 @@ export function setupGameActionHandlers(
 
   // game:surrender
   socket.on('game:surrender', (ack) => {
+    if (socket.data.isSpectator) {
+      return ack({ success: false, error: SPECTATOR_ERROR });
+    }
     const gameId = socket.data.gameId;
     if (!gameId) {
       return ack({ success: false, error: { code: 'CONNECTION_NOT_IN_GAME' as GameErrorCode, message: 'Not in a game' } });
@@ -133,6 +171,7 @@ export function setupGameActionHandlers(
           winnerIndex: result.gameOver.winnerIndex,
           stats: {},
         });
+        handleGameEnd(gameId, game, db);
         setTimeout(() => gameEngine.destroyGame(gameId), GAME_CLEANUP_DELAY_MS);
       }
 
@@ -144,6 +183,9 @@ export function setupGameActionHandlers(
 
   // game:undo
   socket.on('game:undo', (ack) => {
+    if (socket.data.isSpectator) {
+      return ack({ success: false, error: SPECTATOR_ERROR });
+    }
     const gameId = socket.data.gameId;
     if (!gameId) {
       return ack({ success: false, error: { code: 'CONNECTION_NOT_IN_GAME' as GameErrorCode, message: 'Not in a game' } });
@@ -164,6 +206,9 @@ export function setupGameActionHandlers(
 
   // game:proposeAlliance
   socket.on('game:proposeAlliance', ({ targetPlayerIndex }, ack) => {
+    if (socket.data.isSpectator) {
+      return ack({ success: false, error: SPECTATOR_ERROR });
+    }
     const gameId = socket.data.gameId;
     if (!gameId) {
       return ack({ success: false, error: { code: 'CONNECTION_NOT_IN_GAME' as GameErrorCode, message: 'Not in a game' } });
@@ -183,6 +228,9 @@ export function setupGameActionHandlers(
 
   // game:respondAlliance
   socket.on('game:respondAlliance', ({ proposalId, accept }, ack) => {
+    if (socket.data.isSpectator) {
+      return ack({ success: false, error: SPECTATOR_ERROR });
+    }
     const gameId = socket.data.gameId;
     if (!gameId) {
       return ack({ success: false, error: { code: 'CONNECTION_NOT_IN_GAME' as GameErrorCode, message: 'Not in a game' } });

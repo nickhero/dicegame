@@ -198,6 +198,8 @@ export interface ServerToClientEvents {
   'game:playerDisconnected': (data: PlayerConnectionPayload) => void;
   'game:playerReconnected': (data: PlayerConnectionPayload) => void;
   'game:instantBatch': (data: InstantBatchPayload) => void;
+  'game:spectatorCount': (data: { count: number }) => void;
+  'game:readyState': (data: { userId: string; ready: boolean; readyPlayers: string[] }) => void;
 }
 
 export interface ClientToServerEvents {
@@ -235,6 +237,13 @@ export interface ClientToServerEvents {
     data: { gameId: string },
     ack: (res: SocketAck<WireGameState>) => void,
   ) => void;
+  'game:spectate': (
+    data: { gameId: string },
+    ack: (res: SocketAck) => void,
+  ) => void;
+  'game:leaveSpectate': (
+    ack: (res: SocketAck) => void,
+  ) => void;
 }
 
 export interface InterServerEvents {}
@@ -243,4 +252,5 @@ export interface SocketData {
   userId: string;
   userName: string;
   gameId?: string;
+  isSpectator?: boolean;
 }

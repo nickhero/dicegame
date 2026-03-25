@@ -9,6 +9,7 @@ import { lobbyBroadcaster } from './lobbyBroadcaster';
 import { setupWaitingRoomHandlers } from './waitingRoom';
 import { setupGameActionHandlers } from './gameHandlers';
 import { setupDisconnectHandler, setupReconnectHandler } from './disconnectHandler';
+import { setupSpectatorHandlers } from './spectatorHandlers';
 import { gameEngine } from '../services/gameEngineInstance';
 import { initAITurnRunner } from '../services/aiTurnRunnerInstance';
 
@@ -98,7 +99,8 @@ function setupGameNamespace(io: TypedServer, db: AppDatabase) {
     console.log(`[Game] ${socket.data.userName} connected`);
 
     setupWaitingRoomHandlers(socket, game, gameEngine, db, aiTurnRunner);
-    setupGameActionHandlers(socket, game, gameEngine, aiTurnRunner);
+    setupGameActionHandlers(socket, game, gameEngine, db, aiTurnRunner);
+    setupSpectatorHandlers(socket, game, gameEngine, db);
     setupDisconnectHandler(socket, game, gameEngine);
     setupReconnectHandler(socket, game, gameEngine);
 

@@ -174,8 +174,14 @@ export function setupWaitingRoomHandlers(
       lobbyBroadcaster.broadcastGameRemoved(gameId);
       waitingRooms.delete(gameId);
 
-      // If first player is AI, start AI turns
-      if (aiTurnRunner && activeGame.aiPlayerIndices.has(activeGame.state.currentPlayerIndex)) {
+      // If ALL players are AI, creator becomes a spectator
+      if (activeGame.aiPlayerIndices.size === activeGame.state.players.length) {
+        socket.data.isSpectator = true;
+        if (aiTurnRunner) {
+          aiTurnRunner.runAITurns(gameId);
+        }
+      } else if (aiTurnRunner && activeGame.aiPlayerIndices.has(activeGame.state.currentPlayerIndex)) {
+        // If first player is AI, start AI turns
         aiTurnRunner.runAITurns(gameId);
       }
 

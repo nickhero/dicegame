@@ -2,6 +2,7 @@ import type { Namespace, Socket } from 'socket.io';
 import type { GameEngine } from '../services/GameEngine';
 import { serializeGameState } from './serializeState';
 import type { GameErrorCode } from '@dicewars/shared';
+import { decrementSpectators } from './spectatorHandlers';
 
 // Track grace periods: `${gameId}:${userId}` → timer
 const gracePeriods = new Map<string, NodeJS.Timeout>();
@@ -17,6 +18,13 @@ export function setupDisconnectHandler(
     const gameId = socket.data.gameId;
     const userId = socket.data.userId;
     if (!gameId || !userId) return;
+
+    // Spectators disconnect cleanly — no grace period needed
+    if (socket.data.isSpectator) {
+      const count = decrementSpectators(gameId);
+      gameNamespace.to(`game:${gameId}`).emit('game:spectatorCount', { count });
+      return;
+    }
 
     const game = gameEngine.getGame(gameId);
     if (!game || game.status !== 'playing') return;
