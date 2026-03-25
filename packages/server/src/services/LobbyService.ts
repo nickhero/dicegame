@@ -55,6 +55,7 @@ function toSummary(room: GameRoom, creatorName: string): GameRoomSummary {
     mapShape: (config.mapShape as string) || 'rectangle',
     gridType: (config.gridType as string) || 'square',
     territoryCount: (config.territoryCount as number) || 28,
+    speed: (config.speed as string) || 'normal',
     powerUps: (config.powerUps as boolean) || false,
     fogOfWar: (config.fogOfWar as boolean) || false,
     alliances: (config.alliances as boolean) || false,

@@ -166,6 +166,7 @@ export interface GameSetupSummary {
   mapShape: string;
   gridType: string;
   territoryCount: number;
+  speed: string;
   powerUps: boolean;
   fogOfWar: boolean;
   alliances: boolean;

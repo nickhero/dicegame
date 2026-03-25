@@ -199,11 +199,8 @@ export function setupGameActionHandlers(
     }
   });
 
-  // game:surrender
+  // game:surrender — not rate-limited (one-time critical action)
   socket.on('game:surrender', (ack) => {
-    if (isRateLimited()) {
-      return ack({ success: false, error: RATE_LIMITED_ERROR });
-    }
     if (socket.data.isSpectator) {
       return ack({ success: false, error: SPECTATOR_ERROR });
     }

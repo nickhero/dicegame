@@ -80,7 +80,7 @@ export class AITurnRunner {
     gameId: string,
     game: ActiveGame,
     playerIndex: number,
-    timing: (typeof SERVER_TIMING)['normal'],
+    timing: (typeof SERVER_TIMING)[keyof typeof SERVER_TIMING],
   ): Promise<void> {
     const state = game.state;
     const player = state.players[playerIndex];

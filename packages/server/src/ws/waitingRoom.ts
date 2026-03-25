@@ -161,7 +161,7 @@ export function setupWaitingRoomHandlers(
         territoryCount: roomConfig.territoryCount,
         mapShape: roomConfig.mapShape,
         gridType: roomConfig.gridType,
-        speed: 'normal',
+        speed: roomConfig.speed || 'normal',
         powerUps: roomConfig.powerUps,
         fogOfWar: roomConfig.fogOfWar,
         alliances: roomConfig.alliances,
