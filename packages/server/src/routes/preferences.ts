@@ -1,24 +1,25 @@
 import { Hono } from 'hono';
-import { authMiddleware, type JWTPayload } from '../middleware/auth';
+import { authMiddleware } from '../middleware/auth';
 import { UserPreferencesService } from '../services/UserPreferencesService';
 import type { AppDatabase } from '../db/connection';
+import type { AppEnv } from '../types/env';
 
 export function createPreferencesRoutes(db: AppDatabase) {
-  const prefs = new Hono();
+  const prefs = new Hono<AppEnv>();
   const preferencesService = new UserPreferencesService(db);
 
   prefs.use('*', authMiddleware);
 
   // GET /api/me/preferences — Get user preferences
   prefs.get('/me/preferences', async (c) => {
-    const user = c.get('user') as JWTPayload;
+    const user = c.get('user');
     const preferences = await preferencesService.getPreferences(user.sub);
     return c.json(preferences ?? {});
   });
 
   // PUT /api/me/preferences — Update user preferences
   prefs.put('/me/preferences', async (c) => {
-    const user = c.get('user') as JWTPayload;
+    const user = c.get('user');
     const body = await c.req.json().catch(() => null);
 
     if (!body || typeof body !== 'object' || Array.isArray(body)) {

@@ -1,17 +1,18 @@
 import { Hono } from 'hono';
-import { authMiddleware, type JWTPayload } from '../middleware/auth';
+import { authMiddleware } from '../middleware/auth';
 import { UserStatsService } from '../services/UserStatsService';
 import type { AppDatabase } from '../db/connection';
+import type { AppEnv } from '../types/env';
 
 export function createStatsRoutes(db: AppDatabase) {
-  const stats = new Hono();
+  const stats = new Hono<AppEnv>();
   const statsService = new UserStatsService(db);
 
   stats.use('*', authMiddleware);
 
   // GET /api/me/stats — User's own stats
   stats.get('/me/stats', async (c) => {
-    const user = c.get('user') as JWTPayload;
+    const user = c.get('user');
     const userStats = await statsService.getUserStats(user.sub);
     return c.json(userStats);
   });

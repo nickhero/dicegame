@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { serveStatic } from '@hono/node-server/serve-static';
 import { config } from './config';
 import { healthRoutes } from './routes/health';
 import { createAuthRoutes } from './routes/auth';
@@ -11,9 +12,10 @@ import { createSpectateRoutes } from './routes/spectate';
 import { errorHandler } from './middleware/errorHandler';
 import { securityHeaders } from './middleware/securityHeaders';
 import { getDb, AppDatabase } from './db/connection';
+import type { AppEnv } from './types/env';
 
 export function createApp(db?: AppDatabase) {
-  const app = new Hono();
+  const app = new Hono<AppEnv>();
   const database = db ?? getDb();
 
   // Global middleware
@@ -30,6 +32,14 @@ export function createApp(db?: AppDatabase) {
   app.route('/api/me', createHistoryRoutes(database));
   app.route('/api', createStatsRoutes(database));
   app.route('/api', createPreferencesRoutes(database));
+
+  // Production static file serving
+  if (config.nodeEnv !== 'development') {
+    app.use('/*', serveStatic({ root: '../../client/dist' }));
+
+    // SPA fallback: non-API GET requests serve index.html
+    app.get('*', serveStatic({ root: '../../client/dist', path: 'index.html' }));
+  }
 
   // Error handler
   app.onError(errorHandler);

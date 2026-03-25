@@ -34,6 +34,7 @@ export interface ServerGameConfig {
   alliances: boolean;
   undoEnabled: boolean;
   seed?: string;
+  turnTimerDuration?: number;
 }
 
 // In-memory active game

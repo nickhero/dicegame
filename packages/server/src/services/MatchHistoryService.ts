@@ -1,4 +1,4 @@
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, and } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import type { AppDatabase } from '../db/connection';
 import { matches, matchPlayers, gameRooms, users } from '../db/schema';
@@ -211,5 +211,28 @@ export class MatchHistoryService {
       createdAt: match.createdAt,
       players: playersWithNames,
     };
+  }
+
+  /**
+   * Delete a match if it belongs to the given user.
+   * Returns true if the match was found and deleted, false otherwise.
+   */
+  async deleteMatch(matchId: string, userId: string): Promise<boolean> {
+    // Verify the match exists and the user participated
+    const userParticipation = this.db
+      .select()
+      .from(matchPlayers)
+      .where(and(eq(matchPlayers.matchId, matchId), eq(matchPlayers.userId, userId)))
+      .all();
+
+    if (userParticipation.length === 0) return false;
+
+    // Delete match_players rows first (foreign key)
+    this.db.delete(matchPlayers).where(eq(matchPlayers.matchId, matchId)).run();
+
+    // Delete the match row
+    this.db.delete(matches).where(eq(matches.id, matchId)).run();
+
+    return true;
   }
 }

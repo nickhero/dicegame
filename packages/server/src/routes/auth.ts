@@ -2,10 +2,11 @@ import { Hono } from 'hono';
 import { SignJWT, jwtVerify } from 'jose';
 import { nanoid } from 'nanoid';
 import { config } from '../config';
-import { authMiddleware, JWTPayload } from '../middleware/auth';
+import { authMiddleware } from '../middleware/auth';
 import { rateLimit } from '../middleware/rateLimit';
 import { UserService } from '../services/UserService';
 import { AppDatabase } from '../db/connection';
+import type { AppEnv } from '../types/env';
 
 const encoder = new TextEncoder();
 
@@ -14,7 +15,7 @@ const TWENTY_HOURS_SECS = 20 * 60 * 60;
 const guestRateLimit = rateLimit({ maxRequests: 10, windowMs: 60 * 60 * 1000 });
 
 export function createAuthRoutes(db: AppDatabase) {
-  const routes = new Hono();
+  const routes = new Hono<AppEnv>();
   const userService = new UserService(db);
 
   routes.post('/guest', guestRateLimit, async (c) => {
@@ -52,7 +53,7 @@ export function createAuthRoutes(db: AppDatabase) {
   });
 
   routes.post('/refresh', authMiddleware, async (c) => {
-    const user = c.get('user') as JWTPayload;
+    const user = c.get('user');
 
     // Re-verify token to access iat claim
     const authHeader = c.req.header('Authorization')!;

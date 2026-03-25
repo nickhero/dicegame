@@ -4,6 +4,8 @@ import { GameEngine, GameEngineError } from '../services/GameEngine';
 import type { ActiveGame } from '../services/GameEngine';
 import { serializeGameState } from './serializeState';
 import type { AITurnRunner } from '../services/AITurnRunner';
+import type { TurnTimer } from '../services/TurnTimer';
+import type { TurnTimerDuration } from '../services/TurnTimer';
 import type { AppDatabase } from '../db/connection';
 import { MatchHistoryService } from '../services/MatchHistoryService';
 import { AchievementService } from '../services/AchievementService';
@@ -36,6 +38,7 @@ export function setupGameActionHandlers(
   gameEngine: GameEngine,
   db: AppDatabase,
   aiTurnRunner?: AITurnRunner,
+  turnTimer?: TurnTimer,
 ): void {
   // Per-socket action rate limiting: max 10 actions per second
   const ACTION_RATE_LIMIT = 10;
@@ -51,6 +54,19 @@ export function setupGameActionHandlers(
   }
 
   const RATE_LIMITED_ERROR = { code: 'RATE_LIMITED' as GameErrorCode, message: 'Too many actions, slow down' };
+
+  function getTurnDuration(gameId: string): TurnTimerDuration {
+    const game = gameEngine.getGame(gameId);
+    return (game?.config.turnTimerDuration ?? 0) as TurnTimerDuration;
+  }
+
+  function emitStateUpdate(gameId: string, game: ActiveGame) {
+    const state = serializeGameState(game);
+    if (turnTimer) {
+      state.turnTimerRemaining = turnTimer.getRemainingSeconds(gameId);
+    }
+    gameNamespace.to(`game:${gameId}`).emit('game:stateUpdate', state);
+  }
 
   // game:attack — Player attacks a territory
   socket.on('game:attack', ({ fromTerritoryId, toTerritoryId }, ack) => {
@@ -86,10 +102,11 @@ export function setupGameActionHandlers(
 
       // Broadcast updated state
       const updatedGame = gameEngine.getGame(gameId)!;
-      gameNamespace.to(`game:${gameId}`).emit('game:stateUpdate', serializeGameState(updatedGame));
+      emitStateUpdate(gameId, updatedGame);
 
       // Check game over
       if (result.gameOver) {
+        if (turnTimer) turnTimer.destroyGame(gameId);
         gameNamespace.to(`game:${gameId}`).emit('game:gameOver', {
           winnerIndex: result.gameOver.winnerIndex,
           stats: {},
@@ -118,6 +135,9 @@ export function setupGameActionHandlers(
     }
 
     try {
+      // Clear timer for the current player's manual turn end
+      if (turnTimer) turnTimer.clearTimer(gameId);
+
       const result = gameEngine.endTurn(gameId, socket.data.userId);
 
       const game = gameEngine.getGame(gameId)!;
@@ -135,8 +155,13 @@ export function setupGameActionHandlers(
         })),
       });
 
+      // Start timer for the next human player's turn
+      if (turnTimer && !game.aiPlayerIndices.has(result.nextPlayerIndex)) {
+        turnTimer.startTimer(gameId, getTurnDuration(gameId));
+      }
+
       // Broadcast updated state
-      gameNamespace.to(`game:${gameId}`).emit('game:stateUpdate', serializeGameState(game));
+      emitStateUpdate(gameId, game);
 
       // Trigger AI turns if next player is AI
       if (aiTurnRunner && game.aiPlayerIndices.has(result.nextPlayerIndex)) {
@@ -166,7 +191,7 @@ export function setupGameActionHandlers(
       gameEngine.usePowerUp(gameId, socket.data.userId, type, targetTerritoryId, sourceTerritoryId);
 
       const game = gameEngine.getGame(gameId)!;
-      gameNamespace.to(`game:${gameId}`).emit('game:stateUpdate', serializeGameState(game));
+      emitStateUpdate(gameId, game);
 
       ack({ success: true });
     } catch (err) {
@@ -191,9 +216,10 @@ export function setupGameActionHandlers(
       const result = gameEngine.surrender(gameId, socket.data.userId);
 
       const game = gameEngine.getGame(gameId)!;
-      gameNamespace.to(`game:${gameId}`).emit('game:stateUpdate', serializeGameState(game));
+      emitStateUpdate(gameId, game);
 
       if (result.gameOver) {
+        if (turnTimer) turnTimer.destroyGame(gameId);
         gameNamespace.to(`game:${gameId}`).emit('game:gameOver', {
           winnerIndex: result.gameOver.winnerIndex,
           stats: {},
@@ -226,6 +252,9 @@ export function setupGameActionHandlers(
 
       const game = gameEngine.getGame(gameId)!;
       const state = serializeGameState(game);
+      if (turnTimer) {
+        state.turnTimerRemaining = turnTimer.getRemainingSeconds(gameId);
+      }
       gameNamespace.to(`game:${gameId}`).emit('game:stateUpdate', state);
 
       ack({ success: true, data: state });
@@ -251,7 +280,7 @@ export function setupGameActionHandlers(
       gameEngine.proposeAlliance(gameId, socket.data.userId, targetPlayerIndex);
 
       const game = gameEngine.getGame(gameId)!;
-      gameNamespace.to(`game:${gameId}`).emit('game:stateUpdate', serializeGameState(game));
+      emitStateUpdate(gameId, game);
 
       ack({ success: true });
     } catch (err) {
@@ -282,7 +311,7 @@ export function setupGameActionHandlers(
       gameEngine.respondAlliance(gameId, socket.data.userId, proposerIndex, accept);
 
       const game = gameEngine.getGame(gameId)!;
-      gameNamespace.to(`game:${gameId}`).emit('game:stateUpdate', serializeGameState(game));
+      emitStateUpdate(gameId, game);
 
       ack({ success: true });
     } catch (err) {

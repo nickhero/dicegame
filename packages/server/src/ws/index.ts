@@ -12,6 +12,7 @@ import { setupDisconnectHandler, setupReconnectHandler } from './disconnectHandl
 import { setupSpectatorHandlers } from './spectatorHandlers';
 import { gameEngine } from '../services/gameEngineInstance';
 import { initAITurnRunner } from '../services/aiTurnRunnerInstance';
+import { initTurnTimer } from '../services/turnTimerInstance';
 
 type TypedServer = SocketIOServer<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData>;
 
@@ -92,6 +93,7 @@ function setupLobbyNamespace(io: TypedServer, db: AppDatabase) {
 function setupGameNamespace(io: TypedServer, db: AppDatabase) {
   const game = io.of('/game');
   const aiTurnRunner = initAITurnRunner(game);
+  const turnTimer = initTurnTimer(game);
 
   game.use(verifySocketToken);
 
@@ -99,7 +101,7 @@ function setupGameNamespace(io: TypedServer, db: AppDatabase) {
     console.log(`[Game] ${socket.data.userName} connected`);
 
     setupWaitingRoomHandlers(socket, game, gameEngine, db, aiTurnRunner);
-    setupGameActionHandlers(socket, game, gameEngine, db, aiTurnRunner);
+    setupGameActionHandlers(socket, game, gameEngine, db, aiTurnRunner, turnTimer);
     setupSpectatorHandlers(socket, game, gameEngine, db);
     setupDisconnectHandler(socket, game, gameEngine);
     setupReconnectHandler(socket, game, gameEngine);

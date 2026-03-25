@@ -3,14 +3,20 @@ import { authMiddleware } from '../middleware/auth';
 import { rateLimit } from '../middleware/rateLimit';
 import { LobbyService, LobbyError } from '../services/LobbyService';
 import { ERROR_HTTP_STATUS, GameErrorCode } from '@dicewars/shared';
+import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import type { AppDatabase } from '../db/connection';
+import type { AppEnv } from '../types/env';
 import { lobbyBroadcaster } from '../ws/lobbyBroadcaster';
 
 const createGameRateLimit = rateLimit({ maxRequests: 10, windowMs: 60 * 60 * 1000 });
 
 export function createLobbyRoutes(db: AppDatabase) {
-  const lobby = new Hono();
+  const lobby = new Hono<AppEnv>();
   const lobbyService = new LobbyService(db);
+
+  function lobbyErrorStatus(code: GameErrorCode): ContentfulStatusCode {
+    return (ERROR_HTTP_STATUS[code] || 400) as ContentfulStatusCode;
+  }
 
   lobby.use('*', authMiddleware);
 
@@ -74,7 +80,7 @@ export function createLobbyRoutes(db: AppDatabase) {
       return c.json(game, 201);
     } catch (err) {
       if (err instanceof LobbyError) {
-        const status = ERROR_HTTP_STATUS[err.code] || 400;
+        const status = lobbyErrorStatus(err.code);
         return c.json({ error: { code: err.code, message: err.message } }, status);
       }
       throw err;
@@ -95,7 +101,7 @@ export function createLobbyRoutes(db: AppDatabase) {
       return c.json({ success: true });
     } catch (err) {
       if (err instanceof LobbyError) {
-        const status = ERROR_HTTP_STATUS[err.code] || 400;
+        const status = lobbyErrorStatus(err.code);
         return c.json({ error: { code: err.code, message: err.message } }, status);
       }
       throw err;
@@ -113,7 +119,7 @@ export function createLobbyRoutes(db: AppDatabase) {
       return c.json({ success: true });
     } catch (err) {
       if (err instanceof LobbyError) {
-        const status = ERROR_HTTP_STATUS[err.code] || 400;
+        const status = lobbyErrorStatus(err.code);
         return c.json({ error: { code: err.code, message: err.message } }, status);
       }
       throw err;
@@ -135,7 +141,7 @@ export function createLobbyRoutes(db: AppDatabase) {
       return c.json({ success: true });
     } catch (err) {
       if (err instanceof LobbyError) {
-        const status = ERROR_HTTP_STATUS[err.code] || 400;
+        const status = lobbyErrorStatus(err.code);
         return c.json({ error: { code: err.code, message: err.message } }, status);
       }
       throw err;
@@ -160,7 +166,7 @@ export function createLobbyRoutes(db: AppDatabase) {
       return c.json({ success: true });
     } catch (err) {
       if (err instanceof LobbyError) {
-        const status = ERROR_HTTP_STATUS[err.code] || 400;
+        const status = lobbyErrorStatus(err.code);
         return c.json({ error: { code: err.code, message: err.message } }, status);
       }
       throw err;
@@ -178,7 +184,7 @@ export function createLobbyRoutes(db: AppDatabase) {
       return c.json(game);
     } catch (err) {
       if (err instanceof LobbyError) {
-        const status = ERROR_HTTP_STATUS[err.code] || 400;
+        const status = lobbyErrorStatus(err.code);
         return c.json({ error: { code: err.code, message: err.message } }, status);
       }
       throw err;

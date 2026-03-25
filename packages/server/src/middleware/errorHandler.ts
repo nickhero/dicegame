@@ -1,4 +1,5 @@
 import { Context } from 'hono';
+import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { LobbyError } from '../services/LobbyService';
 import { GameEngineError } from '../services/GameEngine';
 import { ERROR_HTTP_STATUS } from '@dicewars/shared';
@@ -6,7 +7,7 @@ import { ERROR_HTTP_STATUS } from '@dicewars/shared';
 export function errorHandler(err: Error, c: Context) {
   // Known game errors
   if (err instanceof LobbyError || err instanceof GameEngineError) {
-    const status = ERROR_HTTP_STATUS[err.code] || 400;
+    const status = (ERROR_HTTP_STATUS[err.code] || 400) as ContentfulStatusCode;
     return c.json({ error: { code: err.code, message: err.message } }, status);
   }
 

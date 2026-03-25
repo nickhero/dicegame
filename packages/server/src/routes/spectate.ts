@@ -1,17 +1,18 @@
 import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
-import { authMiddleware, type JWTPayload } from '../middleware/auth';
+import { authMiddleware } from '../middleware/auth';
 import { gameRooms, gamePlayers, users } from '../db/schema';
 import type { AppDatabase } from '../db/connection';
+import type { AppEnv } from '../types/env';
 
 export function createSpectateRoutes(db: AppDatabase) {
-  const spectate = new Hono();
+  const spectate = new Hono<AppEnv>();
   spectate.use('*', authMiddleware);
 
   // POST /api/games/:id/spectate — Mark user as spectator for this game
   spectate.post('/:id/spectate', async (c) => {
     const gameId = c.req.param('id');
-    const user = c.get('user') as JWTPayload;
+    const user = c.get('user');
 
     // Verify game exists
     const game = db
