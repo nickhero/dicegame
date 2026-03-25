@@ -9,6 +9,7 @@ import { createStatsRoutes } from './routes/stats';
 import { createPreferencesRoutes } from './routes/preferences';
 import { createSpectateRoutes } from './routes/spectate';
 import { errorHandler } from './middleware/errorHandler';
+import { securityHeaders } from './middleware/securityHeaders';
 import { getDb, AppDatabase } from './db/connection';
 
 export function createApp(db?: AppDatabase) {
@@ -16,6 +17,7 @@ export function createApp(db?: AppDatabase) {
   const database = db ?? getDb();
 
   // Global middleware
+  app.use('*', securityHeaders);
   app.use('*', cors({ origin: config.clientOrigin }));
 
   // Public routes

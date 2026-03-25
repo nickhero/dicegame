@@ -37,8 +37,26 @@ export function setupGameActionHandlers(
   db: AppDatabase,
   aiTurnRunner?: AITurnRunner,
 ): void {
+  // Per-socket action rate limiting: max 10 actions per second
+  const ACTION_RATE_LIMIT = 10;
+  const ACTION_RATE_WINDOW_MS = 1000;
+  let actionTimestamps: number[] = [];
+
+  function isRateLimited(): boolean {
+    const now = Date.now();
+    actionTimestamps = actionTimestamps.filter(t => now - t < ACTION_RATE_WINDOW_MS);
+    if (actionTimestamps.length >= ACTION_RATE_LIMIT) return true;
+    actionTimestamps.push(now);
+    return false;
+  }
+
+  const RATE_LIMITED_ERROR = { code: 'RATE_LIMITED' as GameErrorCode, message: 'Too many actions, slow down' };
+
   // game:attack — Player attacks a territory
   socket.on('game:attack', ({ fromTerritoryId, toTerritoryId }, ack) => {
+    if (isRateLimited()) {
+      return ack({ success: false, error: RATE_LIMITED_ERROR });
+    }
     if (socket.data.isSpectator) {
       return ack({ success: false, error: SPECTATOR_ERROR });
     }
@@ -88,6 +106,9 @@ export function setupGameActionHandlers(
 
   // game:endTurn — End current turn
   socket.on('game:endTurn', (ack) => {
+    if (isRateLimited()) {
+      return ack({ success: false, error: RATE_LIMITED_ERROR });
+    }
     if (socket.data.isSpectator) {
       return ack({ success: false, error: SPECTATOR_ERROR });
     }
@@ -130,6 +151,9 @@ export function setupGameActionHandlers(
 
   // game:usePowerUp — Use a power-up
   socket.on('game:usePowerUp', ({ type, targetTerritoryId, sourceTerritoryId }, ack) => {
+    if (isRateLimited()) {
+      return ack({ success: false, error: RATE_LIMITED_ERROR });
+    }
     if (socket.data.isSpectator) {
       return ack({ success: false, error: SPECTATOR_ERROR });
     }
@@ -152,6 +176,9 @@ export function setupGameActionHandlers(
 
   // game:surrender
   socket.on('game:surrender', (ack) => {
+    if (isRateLimited()) {
+      return ack({ success: false, error: RATE_LIMITED_ERROR });
+    }
     if (socket.data.isSpectator) {
       return ack({ success: false, error: SPECTATOR_ERROR });
     }
@@ -183,6 +210,9 @@ export function setupGameActionHandlers(
 
   // game:undo
   socket.on('game:undo', (ack) => {
+    if (isRateLimited()) {
+      return ack({ success: false, error: RATE_LIMITED_ERROR });
+    }
     if (socket.data.isSpectator) {
       return ack({ success: false, error: SPECTATOR_ERROR });
     }
@@ -206,6 +236,9 @@ export function setupGameActionHandlers(
 
   // game:proposeAlliance
   socket.on('game:proposeAlliance', ({ targetPlayerIndex }, ack) => {
+    if (isRateLimited()) {
+      return ack({ success: false, error: RATE_LIMITED_ERROR });
+    }
     if (socket.data.isSpectator) {
       return ack({ success: false, error: SPECTATOR_ERROR });
     }
@@ -228,6 +261,9 @@ export function setupGameActionHandlers(
 
   // game:respondAlliance
   socket.on('game:respondAlliance', ({ proposalId, accept }, ack) => {
+    if (isRateLimited()) {
+      return ack({ success: false, error: RATE_LIMITED_ERROR });
+    }
     if (socket.data.isSpectator) {
       return ack({ success: false, error: SPECTATOR_ERROR });
     }

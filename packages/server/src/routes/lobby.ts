@@ -1,9 +1,12 @@
 import { Hono } from 'hono';
 import { authMiddleware } from '../middleware/auth';
+import { rateLimit } from '../middleware/rateLimit';
 import { LobbyService, LobbyError } from '../services/LobbyService';
 import { ERROR_HTTP_STATUS, GameErrorCode } from '@dicewars/shared';
 import type { AppDatabase } from '../db/connection';
 import { lobbyBroadcaster } from '../ws/lobbyBroadcaster';
+
+const createGameRateLimit = rateLimit({ maxRequests: 10, windowMs: 60 * 60 * 1000 });
 
 export function createLobbyRoutes(db: AppDatabase) {
   const lobby = new Hono();
@@ -42,7 +45,7 @@ export function createLobbyRoutes(db: AppDatabase) {
   });
 
   // POST /api/games — Create game
-  lobby.post('/', async (c) => {
+  lobby.post('/', createGameRateLimit, async (c) => {
     const user = c.get('user');
     const body = await c.req.json().catch(() => ({}));
 
