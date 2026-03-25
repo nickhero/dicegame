@@ -17,6 +17,7 @@ import {
   GameStats,
   createAllianceState, wouldBreakAlliance, AllianceProposal,
   PLAYER_COLORS, GAME_WIDTH, GAME_HEIGHT,
+  GameErrorCode,
 } from '@dicewars/shared';
 import type {
   BattleResultPayload,
@@ -27,8 +28,11 @@ import type {
   PlayerConnectionPayload,
   WireGameState,
   WirePowerUp,
+  GameError,
 } from '@dicewars/shared';
 import { SocketClient } from '../network/SocketClient';
+import type { ConnectionState } from '../network/SocketClient';
+import { AuthClient } from '../network/AuthClient';
 import { deserializeWireState } from '../network/deserializeState';
 import { MapRenderer } from '../rendering/MapRenderer';
 import { DiceRenderer, createDiceTextures } from '../rendering/DiceRenderer';
@@ -37,6 +41,7 @@ import { BattleAnimator } from '../rendering/BattleAnimator';
 import { EventLog } from '../rendering/EventLog';
 import { TerritoryEffects } from '../rendering/TerritoryEffects';
 import { SoundManager } from '../rendering/SoundManager';
+import { ToastManager } from '../rendering/ToastManager';
 
 export class GameScene extends Phaser.Scene {
   private gameState!: GameState;
@@ -64,21 +69,29 @@ export class GameScene extends Phaser.Scene {
   private spectatorMode = false;
   private spectatorPaused = false;
   private spectatorLabel: Phaser.GameObjects.Text | null = null;
-  private gameRecorder!: GameRecorder;
   private undoEnabled = true;
   private gameSeed = 0;
   // Network client for server-based games
   private socketClient: SocketClient | null = null;
+  private authClient: AuthClient | null = null;
   private isOnlineGame = false;
+  private toastManager!: ToastManager;
+  private disconnectOverlay: Phaser.GameObjects.Container | null = null;
+  private disconnectTimer: Phaser.Time.TimerEvent | null = null;
+  private connectionCleanup: (() => void) | null = null;
+  private localPlayerIndex: number | undefined;
 
   constructor() {
     super('GameScene');
   }
 
-  init(data?: Partial<GameSetupConfig> & { socketClient?: SocketClient; initialState?: WireGameState }): void {
+  init(data?: Partial<GameSetupConfig> & { socketClient?: SocketClient; authClient?: AuthClient; initialState?: WireGameState }): void {
     if (data?.socketClient) {
       this.socketClient = data.socketClient;
       this.isOnlineGame = true;
+    }
+    if (data?.authClient) {
+      this.authClient = data.authClient;
     }
 
     if (data && typeof data.playerCount === 'number') {
@@ -192,23 +205,31 @@ export class GameScene extends Phaser.Scene {
     this.territoryEffects = new TerritoryEffects(this);
     this.soundManager = new SoundManager();
     this.gameStats = new GameStats();
-    this.gameRecorder = new GameRecorder();
+    this.toastManager = new ToastManager(this);
 
     if (!this.isOnlineGame) {
-      this.gameRecorder.setInitialState(
+      const gameRecorder = new GameRecorder();
+      gameRecorder.setInitialState(
         this.gameState.territories,
         this.gameState.players,
         this.gameState.adjacency,
         !!this.gameState.powerUpsEnabled,
       );
       this.gameStats.recordTurnStart(this.gameState);
-      this.gameRecorder.startTurn(this.gameState.turnNumber, this.gameState.currentPlayerIndex);
+      gameRecorder.startTurn(this.gameState.turnNumber, this.gameState.currentPlayerIndex);
+      // Store recorder on scene data for offline game-over
+      this.data.set('gameRecorder', gameRecorder);
     }
 
     // Setup UI callbacks
     this.uiRenderer.setEndTurnCallback(() => this.onEndTurn());
     if (this.undoEnabled && !this.isOnlineGame) {
       this.uiRenderer.setUndoCallback(() => this.undoLastAttack());
+    }
+    if (this.isOnlineGame) {
+      this.uiRenderer.setProposeAllianceCallback((targetIndex) => this.proposeAllianceToPlayer(targetIndex));
+      // Determine local player index from state
+      this.localPlayerIndex = this.gameState.players.findIndex((p) => p.isHuman);
     }
     if (this.spectatorMode) {
       this.uiRenderer.setSpectatorMode(true);
@@ -259,6 +280,8 @@ export class GameScene extends Phaser.Scene {
     // Setup WebSocket listeners for online games
     if (this.isOnlineGame) {
       this.setupSocketListeners();
+      this.setupConnectionStateListener();
+      this.uiRenderer.setConnectionState(this.socketClient!.state);
       this.uiRenderer.setStatus('Connected — waiting for game to start');
       return;
     }
@@ -395,8 +418,23 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    this.socketClient.on('game:error', (error) => {
-      this.uiRenderer.setStatus(`Error: ${error.message}`);
+    this.socketClient.on('game:error', (error: GameError) => {
+      switch (error.code) {
+        case GameErrorCode.GAME_NOT_YOUR_TURN:
+          this.toastManager.show('Not your turn!', 'warning');
+          break;
+        case GameErrorCode.GAME_INVALID_TERRITORY:
+        case GameErrorCode.GAME_TERRITORY_NOT_ADJACENT:
+        case GameErrorCode.GAME_TERRITORY_OWN:
+          this.toastManager.show('Invalid target', 'error');
+          break;
+        case GameErrorCode.AUTH_TOKEN_EXPIRED:
+          this.handleTokenRefresh();
+          break;
+        default:
+          this.toastManager.show(error.message, 'error');
+          break;
+      }
     });
   }
 
@@ -690,10 +728,10 @@ export class GameScene extends Phaser.Scene {
     try {
       const ack = await this.socketClient.surrender();
       if (!ack.success) {
-        this.uiRenderer.setStatus(ack.error?.message || 'Surrender failed');
+        this.toastManager.show(ack.error?.message || 'Surrender failed', 'error');
       }
     } catch {
-      this.uiRenderer.setStatus('Connection error');
+      this.toastManager.show('Connection error', 'error');
     }
   }
 
@@ -779,11 +817,11 @@ export class GameScene extends Phaser.Scene {
     try {
       const ack = await this.socketClient.attack(attackerId, territoryId);
       if (!ack.success) {
-        this.uiRenderer.setStatus(ack.error?.message || 'Attack failed');
+        this.toastManager.show(ack.error?.message || 'Attack failed', 'error');
       }
       // Battle result and state update will arrive via WebSocket events
     } catch {
-      this.uiRenderer.setStatus('Connection error');
+      this.toastManager.show('Connection error', 'error');
     } finally {
       this.isProcessing = false;
       this.gameState.selectedTerritoryId = null;
@@ -850,10 +888,10 @@ export class GameScene extends Phaser.Scene {
     try {
       const ack = await this.socketClient.usePowerUp('reinforce', territoryId);
       if (!ack.success) {
-        this.uiRenderer.setStatus(ack.error?.message || 'Power-up failed');
+        this.toastManager.show(ack.error?.message || 'Power-up failed', 'error');
       }
     } catch {
-      this.uiRenderer.setStatus('Connection error');
+      this.toastManager.show('Connection error', 'error');
     }
     this.dismissPowerUpPopup();
   }
@@ -882,10 +920,10 @@ export class GameScene extends Phaser.Scene {
     try {
       const ack = await this.socketClient.usePowerUp('fortify', targetId, sourceId);
       if (!ack.success) {
-        this.uiRenderer.setStatus(ack.error?.message || 'Fortify failed');
+        this.toastManager.show(ack.error?.message || 'Fortify failed', 'error');
       }
     } catch {
-      this.uiRenderer.setStatus('Connection error');
+      this.toastManager.show('Connection error', 'error');
     }
     this.cancelFortify();
   }
@@ -909,10 +947,10 @@ export class GameScene extends Phaser.Scene {
         this.refreshDisplay();
         this.uiRenderer.setStatus('Attack undone. Select a territory to attack from.');
       } else {
-        this.uiRenderer.setStatus(ack.error?.message || 'Undo failed');
+        this.toastManager.show(ack.error?.message || 'Undo failed', 'error');
       }
     } catch {
-      this.uiRenderer.setStatus('Connection error');
+      this.toastManager.show('Connection error', 'error');
     }
   }
 
@@ -938,6 +976,124 @@ export class GameScene extends Phaser.Scene {
     );
   }
 
+  // ─── Connection State ──────────────────────────────────────
+
+  private setupConnectionStateListener(): void {
+    if (!this.socketClient) return;
+
+    this.connectionCleanup = this.socketClient.onConnectionStateChange((state: ConnectionState) => {
+      this.uiRenderer.setConnectionState(state);
+
+      if (state === 'disconnected' || state === 'connecting') {
+        this.showDisconnectOverlay();
+      } else if (state === 'connected') {
+        this.clearDisconnectOverlay();
+      }
+    });
+  }
+
+  private showDisconnectOverlay(): void {
+    if (this.disconnectOverlay) return;
+
+    this.disconnectOverlay = this.add.container(0, 0).setDepth(800);
+
+    const bg = this.add.graphics();
+    bg.fillStyle(0x000000, 0.5);
+    bg.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+    this.disconnectOverlay.add(bg);
+
+    const label = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 10, 'Reconnecting...', {
+      fontSize: '22px',
+      color: '#ffcc44',
+      fontFamily: 'monospace',
+      fontStyle: 'bold',
+    }).setOrigin(0.5);
+    this.disconnectOverlay.add(label);
+
+    // After 10 seconds, show a retry button
+    this.disconnectTimer = this.time.delayedCall(10_000, () => {
+      if (!this.disconnectOverlay) return;
+
+      label.setText('Connection Lost');
+
+      const retryBg = this.add.graphics();
+      retryBg.fillStyle(0xe94560, 1);
+      retryBg.fillRoundedRect(GAME_WIDTH / 2 - 80, GAME_HEIGHT / 2 + 15, 160, 40, 8);
+      this.disconnectOverlay!.add(retryBg);
+
+      const retryText = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 35, 'RETRY', {
+        fontSize: '16px', color: '#ffffff', fontFamily: 'monospace', fontStyle: 'bold',
+      }).setOrigin(0.5);
+      this.disconnectOverlay!.add(retryText);
+
+      const retryZone = this.add.zone(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 35, 160, 40)
+        .setInteractive({ useHandCursor: true })
+        .setDepth(801);
+      retryZone.on('pointerover', () => {
+        retryBg.clear();
+        retryBg.fillStyle(0xff6580, 1);
+        retryBg.fillRoundedRect(GAME_WIDTH / 2 - 80, GAME_HEIGHT / 2 + 15, 160, 40, 8);
+      });
+      retryZone.on('pointerout', () => {
+        retryBg.clear();
+        retryBg.fillStyle(0xe94560, 1);
+        retryBg.fillRoundedRect(GAME_WIDTH / 2 - 80, GAME_HEIGHT / 2 + 15, 160, 40, 8);
+      });
+      retryZone.on('pointerdown', () => {
+        this.clearDisconnectOverlay();
+        // Return to lobby to re-establish connection
+        this.scene.start('LobbyScene', { authClient: this.authClient });
+      });
+      this.disconnectOverlay!.add(retryZone);
+    });
+  }
+
+  private clearDisconnectOverlay(): void {
+    if (this.disconnectTimer) {
+      this.disconnectTimer.destroy();
+      this.disconnectTimer = null;
+    }
+    if (this.disconnectOverlay) {
+      this.disconnectOverlay.destroy();
+      this.disconnectOverlay = null;
+    }
+  }
+
+  // ─── Alliance Proposal ─────────────────────────────────────
+
+  private async proposeAllianceToPlayer(targetIndex: number): Promise<void> {
+    if (!this.socketClient) return;
+    try {
+      const ack = await this.socketClient.proposeAlliance(targetIndex);
+      if (ack.success) {
+        const targetName = this.gameState.players[targetIndex]?.name ?? 'Unknown';
+        this.toastManager.show(`Alliance proposed to ${targetName}`, 'info');
+      } else {
+        this.toastManager.show(ack.error?.message || 'Alliance proposal failed', 'error');
+      }
+    } catch {
+      this.toastManager.show('Connection error', 'error');
+    }
+  }
+
+  // ─── Token Refresh ─────────────────────────────────────────
+
+  private async handleTokenRefresh(): Promise<void> {
+    if (!this.authClient) {
+      this.toastManager.show('Session expired — please rejoin', 'error');
+      return;
+    }
+    try {
+      await this.authClient.refreshToken();
+      this.toastManager.show('Session refreshed', 'info');
+    } catch {
+      this.toastManager.show('Session expired — please login again', 'error');
+      this.time.delayedCall(2000, () => {
+        this.scene.start('LoginScene');
+      });
+    }
+  }
+
   private async onEndTurn(): Promise<void> {
     if (this.isProcessing) return;
     if (this.gameState.phase === 'gameOver') return;
@@ -947,11 +1103,11 @@ export class GameScene extends Phaser.Scene {
     try {
       const ack = await this.socketClient.endTurn();
       if (!ack.success) {
-        this.uiRenderer.setStatus(ack.error?.message || 'End turn failed');
+        this.toastManager.show(ack.error?.message || 'End turn failed', 'error');
       }
       // Turn change, AI actions, and state updates arrive via WebSocket events
     } catch {
-      this.uiRenderer.setStatus('Connection error');
+      this.toastManager.show('Connection error', 'error');
     } finally {
       this.isProcessing = false;
     }
@@ -1023,8 +1179,10 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Offline: save recording and check achievements
-    this.gameRecorder.endCurrentTurn();
-    const recording = this.gameRecorder.getRecording(
+    const gameRecorder = this.data.get('gameRecorder') as GameRecorder | undefined;
+    if (!gameRecorder) return;
+    gameRecorder.endCurrentTurn();
+    const recording = gameRecorder.getRecording(
       this.gameState.winner,
       winner?.name ?? 'Unknown',
     );
@@ -1195,7 +1353,7 @@ export class GameScene extends Phaser.Scene {
 
     this.mapRenderer.drawMap(this.gameState, selectedId, validTargets, attackable, visibleSet);
     this.diceRenderer.drawDiceStacks(this.gameState.territories, visibleSet);
-    this.uiRenderer.update(this.gameState);
+    this.uiRenderer.update(this.gameState, this.localPlayerIndex);
     this.uiRenderer.setUndoVisible(false); // Undo managed by server in online mode
     this.territoryEffects.updateLowDiceWarnings(this.gameState);
   }

@@ -3,6 +3,7 @@ import {
   GameState, PERSONALITIES,
   PLAYER_COLORS, PLAYER_COLOR_STRINGS, GAME_WIDTH, GAME_HEIGHT,
 } from '@dicewars/shared';
+import type { ConnectionState } from '../network/SocketClient';
 
 export class UIRenderer {
   private scene: Phaser.Scene;
@@ -14,7 +15,11 @@ export class UIRenderer {
   private undoBtn!: Phaser.GameObjects.Container;
   private onEndTurn: (() => void) | null = null;
   private onUndo: (() => void) | null = null;
+  private onProposeAlliance: ((targetIndex: number) => void) | null = null;
   private spectatorMode = false;
+  private connectionDot!: Phaser.GameObjects.Graphics;
+  private connectionLabel!: Phaser.GameObjects.Text;
+  private allianceBtns: Phaser.GameObjects.Text[] = [];
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -68,6 +73,30 @@ export class UIRenderer {
     // Undo button (below end turn)
     this.undoBtn = this.createUndoButton(panelX, 325);
     this.container.add(this.undoBtn);
+
+    // Connection indicator (top-left corner)
+    this.connectionDot = this.scene.add.graphics();
+    this.container.add(this.connectionDot);
+
+    this.connectionLabel = this.scene.add.text(28, 12, '', {
+      fontSize: '11px',
+      color: '#aaaaaa',
+      fontFamily: 'monospace',
+    });
+    this.container.add(this.connectionLabel);
+
+    // Alliance proposal buttons (created lazily per player slot)
+    for (let i = 0; i < 6; i++) {
+      const btn = this.scene.add.text(0, 0, '🤝', {
+        fontSize: '12px',
+        fontFamily: 'monospace',
+      }).setInteractive({ useHandCursor: true }).setVisible(false);
+      btn.on('pointerdown', () => {
+        if (this.onProposeAlliance) this.onProposeAlliance(i);
+      });
+      this.allianceBtns.push(btn);
+      this.container.add(btn);
+    }
   }
 
   private createUndoButton(x: number, y: number): Phaser.GameObjects.Container {
@@ -149,16 +178,39 @@ export class UIRenderer {
     this.onUndo = cb;
   }
 
+  setProposeAllianceCallback(cb: (targetIndex: number) => void): void {
+    this.onProposeAlliance = cb;
+  }
+
   setSpectatorMode(enabled: boolean): void {
     this.spectatorMode = enabled;
   }
 
-  update(state: GameState): void {
+  setConnectionState(state: ConnectionState): void {
+    const colorMap: Record<ConnectionState, { hex: number; label: string; textColor: string }> = {
+      connected: { hex: 0x44cc44, label: 'Connected', textColor: '#44cc44' },
+      connecting: { hex: 0xcccc44, label: 'Reconnecting...', textColor: '#cccc44' },
+      disconnected: { hex: 0xcc4444, label: 'Disconnected', textColor: '#cc4444' },
+    };
+    const { hex, label, textColor } = colorMap[state];
+
+    this.connectionDot.clear();
+    this.connectionDot.fillStyle(hex, 1);
+    this.connectionDot.fillCircle(14, 18, 5);
+
+    this.connectionLabel.setText(label).setColor(textColor);
+  }
+
+  update(state: GameState, localPlayerIndex?: number): void {
     this.turnText.setText(`Turn ${state.turnNumber}`);
+
+    const panelX = GAME_WIDTH - 190;
+    const hasAlliances = !!state.allianceState;
 
     for (let i = 0; i < this.playerInfoTexts.length; i++) {
       if (i >= state.players.length) {
         this.playerInfoTexts[i].setText('');
+        this.allianceBtns[i].setVisible(false);
         continue;
       }
       const p = state.players[i];
@@ -185,6 +237,16 @@ export class UIRenderer {
       this.playerInfoTexts[i].setColor(
         p.isAlive ? PLAYER_COLOR_STRINGS[i] : '#666666'
       );
+
+      // Show alliance propose button for alive non-local players when alliances are enabled
+      const isLocal = localPlayerIndex !== undefined && i === localPlayerIndex;
+      const canPropose = hasAlliances && !this.spectatorMode && !isLocal &&
+        p.isAlive && localPlayerIndex !== undefined &&
+        state.players[localPlayerIndex]?.isAlive;
+      this.allianceBtns[i].setVisible(!!canPropose);
+      if (canPropose) {
+        this.allianceBtns[i].setPosition(panelX + 175, 50 + i * 35);
+      }
     }
 
     // Show/hide end turn button based on phase

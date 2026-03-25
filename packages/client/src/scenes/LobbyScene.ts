@@ -21,6 +21,11 @@ export class LobbyScene extends Phaser.Scene {
   private statusText!: Phaser.GameObjects.Text;
   private pollTimer!: Phaser.Time.TimerEvent;
   private unsubGameList?: () => void;
+  private inviteInput = '';
+  private inviteDisplay!: Phaser.GameObjects.Text;
+  private inviteCursorVisible = true;
+  private inviteCursorTimer!: Phaser.Time.TimerEvent;
+  private inviteFocused = false;
 
   constructor() {
     super('LobbyScene');
@@ -32,6 +37,8 @@ export class LobbyScene extends Phaser.Scene {
       new LobbyClient(this.authClient.getToken()!);
     this.games = [];
     this.scrollOffset = 0;
+    this.inviteInput = '';
+    this.inviteFocused = false;
   }
 
   create(): void {
@@ -97,6 +104,78 @@ export class LobbyScene extends Phaser.Scene {
       this.renderGameList();
     });
 
+    // Invite code input
+    const inviteY = GAME_HEIGHT - 115;
+    const inviteInputW = 200;
+    const inviteInputH = 34;
+    const inviteInputX = cx - 160;
+
+    this.add.text(inviteInputX - 5, inviteY - 20, 'INVITE CODE', {
+      fontSize: '11px', color: '#888888', fontFamily: 'monospace',
+    });
+
+    const inviteBg = this.add.graphics();
+    inviteBg.fillStyle(0x0a0a1a, 1);
+    inviteBg.fillRoundedRect(inviteInputX, inviteY, inviteInputW, inviteInputH, 6);
+    inviteBg.lineStyle(2, 0x444466, 1);
+    inviteBg.strokeRoundedRect(inviteInputX, inviteY, inviteInputW, inviteInputH, 6);
+
+    this.inviteDisplay = this.add.text(inviteInputX + 10, inviteY + 8, '', {
+      fontSize: '14px', color: '#ffffff', fontFamily: 'monospace',
+    });
+
+    // Clickable zone for invite input focus
+    this.add.zone(inviteInputX + inviteInputW / 2, inviteY + inviteInputH / 2, inviteInputW, inviteInputH)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerdown', () => {
+        this.inviteFocused = true;
+        inviteBg.clear();
+        inviteBg.fillStyle(0x0a0a1a, 1);
+        inviteBg.fillRoundedRect(inviteInputX, inviteY, inviteInputW, inviteInputH, 6);
+        inviteBg.lineStyle(2, 0xe94560, 1);
+        inviteBg.strokeRoundedRect(inviteInputX, inviteY, inviteInputW, inviteInputH, 6);
+      });
+
+    // Blinking cursor for invite input
+    this.inviteCursorTimer = this.time.addEvent({
+      delay: 500,
+      loop: true,
+      callback: () => {
+        this.inviteCursorVisible = !this.inviteCursorVisible;
+        this.updateInviteDisplay();
+      },
+    });
+
+    // Join button next to invite input
+    const joinBtnX = inviteInputX + inviteInputW + 20;
+    this.createButton(joinBtnX + 50, inviteY + inviteInputH / 2, 'JOIN', 0x338833, 0x44aa44, () => {
+      this.submitInviteCode();
+    });
+
+    // Keyboard handler for invite input
+    this.input.keyboard!.on('keydown', (event: KeyboardEvent) => {
+      if (!this.inviteFocused) return;
+      if (event.key === 'Backspace') {
+        this.inviteInput = this.inviteInput.slice(0, -1);
+      } else if (event.key === 'Enter') {
+        this.submitInviteCode();
+        return;
+      } else if (event.key === 'Escape') {
+        this.inviteFocused = false;
+        inviteBg.clear();
+        inviteBg.fillStyle(0x0a0a1a, 1);
+        inviteBg.fillRoundedRect(inviteInputX, inviteY, inviteInputW, inviteInputH, 6);
+        inviteBg.lineStyle(2, 0x444466, 1);
+        inviteBg.strokeRoundedRect(inviteInputX, inviteY, inviteInputW, inviteInputH, 6);
+        return;
+      } else if (event.key.length === 1 && this.inviteInput.length < 20) {
+        if (/^[a-zA-Z0-9-]$/.test(event.key)) {
+          this.inviteInput += event.key;
+        }
+      }
+      this.updateInviteDisplay();
+    });
+
     // Buttons row
     const btnY = GAME_HEIGHT - 60;
     this.createButton(160, btnY, 'CREATE GAME', 0xe94560, 0xff6580, () => {
@@ -139,6 +218,7 @@ export class LobbyScene extends Phaser.Scene {
   shutdown(): void {
     if (this.pollTimer) this.pollTimer.destroy();
     if (this.unsubGameList) this.unsubGameList();
+    if (this.inviteCursorTimer) this.inviteCursorTimer.destroy();
     this.input.off('wheel');
   }
 
@@ -319,6 +399,35 @@ export class LobbyScene extends Phaser.Scene {
       const message = err instanceof Error ? err.message : 'Failed to join game';
       this.statusText.setText(message).setColor('#e94560');
       this.statusText.setVisible(true);
+    }
+  }
+
+  private updateInviteDisplay(): void {
+    const cursor = this.inviteFocused && this.inviteCursorVisible ? '|' : '';
+    this.inviteDisplay.setText(this.inviteInput + cursor);
+  }
+
+  private async submitInviteCode(): Promise<void> {
+    const code = this.inviteInput.trim();
+    if (!code) {
+      this.statusText.setText('Enter an invite code').setColor('#e94560');
+      this.statusText.setVisible(true);
+      return;
+    }
+
+    this.statusText.setText('Resolving invite...').setColor('#aaaaaa');
+    this.statusText.setVisible(true);
+
+    try {
+      const game = await this.lobbyClient.resolveInvite(code);
+      if (!game) {
+        this.statusText.setText('Invalid invite code').setColor('#e94560');
+        return;
+      }
+      await this.doJoin(game.id);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to join via invite';
+      this.statusText.setText(message).setColor('#e94560');
     }
   }
 
