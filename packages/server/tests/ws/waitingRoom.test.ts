@@ -466,6 +466,165 @@ describe('Waiting Room WebSocket', () => {
     expect(result.error.code).toBe('CONNECTION_NOT_IN_GAME');
   });
 
+  // --- game:addAI ---
+
+  it('creator can add AI to empty slot', async () => {
+    const game = await createSeededGame('addai-creator', 'AddAICreator');
+    const token = await createTestToken('addai-creator', 'AddAICreator');
+    const client = await connectAndWait(token);
+
+    await new Promise<any>((resolve) => {
+      client.emit('game:join', { gameId: game.id }, resolve);
+    });
+
+    const result = await new Promise<any>((resolve) => {
+      client.emit('game:addAI', { gameId: game.id, slotIndex: 1, personality: 'aggressive' }, resolve);
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.data.players).toBeDefined();
+  });
+
+  it('non-creator cannot add AI', async () => {
+    const game = await createSeededGame('addai-nc-creator', 'AddAINCCreator');
+
+    seedUser(db, 'addai-nc-p2', 'NonCreator');
+    const lobbyService = new LobbyService(db);
+    await lobbyService.joinGame(game.id, 'addai-nc-p2');
+
+    const p2Token = await createTestToken('addai-nc-p2', 'NonCreator');
+    const p2Client = await connectAndWait(p2Token);
+
+    await new Promise<any>((resolve) => {
+      p2Client.emit('game:join', { gameId: game.id }, resolve);
+    });
+
+    const result = await new Promise<any>((resolve) => {
+      p2Client.emit('game:addAI', { gameId: game.id, slotIndex: 2, personality: 'cautious' }, resolve);
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error.code).toBe('LOBBY_NOT_CREATOR');
+  });
+
+  // --- game:removeAI ---
+
+  it('creator can remove AI', async () => {
+    const game = await createSeededGame('rmai-creator', 'RmAICreator');
+    const token = await createTestToken('rmai-creator', 'RmAICreator');
+    const client = await connectAndWait(token);
+
+    await new Promise<any>((resolve) => {
+      client.emit('game:join', { gameId: game.id }, resolve);
+    });
+
+    // Add AI first
+    await new Promise<any>((resolve) => {
+      client.emit('game:addAI', { gameId: game.id, slotIndex: 1, personality: 'balanced' }, resolve);
+    });
+
+    const result = await new Promise<any>((resolve) => {
+      client.emit('game:removeAI', { gameId: game.id, slotIndex: 1 }, resolve);
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('creator cannot remove human players', async () => {
+    const game = await createSeededGame('rmhuman-creator', 'RmHumanCreator');
+
+    seedUser(db, 'rmhuman-p2', 'HumanPlayer');
+    const lobbyService = new LobbyService(db);
+    await lobbyService.joinGame(game.id, 'rmhuman-p2');
+
+    const token = await createTestToken('rmhuman-creator', 'RmHumanCreator');
+    const client = await connectAndWait(token);
+
+    await new Promise<any>((resolve) => {
+      client.emit('game:join', { gameId: game.id }, resolve);
+    });
+
+    // Try to remove the human player (slot 1, since creator is slot 0)
+    const result = await new Promise<any>((resolve) => {
+      client.emit('game:removeAI', { gameId: game.id, slotIndex: 1 }, resolve);
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error.message).toBe('Cannot remove a human player');
+  });
+
+  // --- game:rearrangeSlots ---
+
+  it('creator can swap slots', async () => {
+    const game = await createSeededGame('swap-creator', 'SwapCreator');
+    const token = await createTestToken('swap-creator', 'SwapCreator');
+    const client = await connectAndWait(token);
+
+    await new Promise<any>((resolve) => {
+      client.emit('game:join', { gameId: game.id }, resolve);
+    });
+
+    // Add AI to slot 1
+    await new Promise<any>((resolve) => {
+      client.emit('game:addAI', { gameId: game.id, slotIndex: 1, personality: 'aggressive' }, resolve);
+    });
+
+    // Listen for slotsRearranged
+    const rearrangePromise = new Promise<any>((resolve) => {
+      client.on('game:slotsRearranged', resolve);
+    });
+
+    const result = await new Promise<any>((resolve) => {
+      client.emit('game:rearrangeSlots', { gameId: game.id, fromSlot: 0, toSlot: 1 }, resolve);
+    });
+
+    expect(result.success).toBe(true);
+
+    const rearranged = await rearrangePromise;
+    expect(rearranged.players).toBeDefined();
+    expect(rearranged.players.length).toBe(2);
+  });
+
+  it('cannot modify slots after game started', async () => {
+    const game = await createSeededGame('started-creator', 'StartedCreator');
+
+    // Add a second player so game can start
+    seedUser(db, 'started-p2', 'StartedP2');
+    const lobbyService = new LobbyService(db);
+    await lobbyService.joinGame(game.id, 'started-p2');
+
+    const creatorToken = await createTestToken('started-creator', 'StartedCreator');
+    const creatorClient = await connectAndWait(creatorToken);
+
+    await new Promise<any>((resolve) => {
+      creatorClient.emit('game:join', { gameId: game.id }, resolve);
+    });
+
+    // Start the game
+    const startResult = await new Promise<any>((resolve) => {
+      creatorClient.emit('game:start', { gameId: game.id }, resolve);
+    });
+    expect(startResult.success).toBe(true);
+
+    // Try to add AI after game started
+    const addResult = await new Promise<any>((resolve) => {
+      creatorClient.emit('game:addAI', { gameId: game.id, slotIndex: 3, personality: 'cautious' }, resolve);
+    });
+
+    expect(addResult.success).toBe(false);
+    expect(addResult.error.code).toBe('LOBBY_GAME_STARTED');
+
+    // Try to rearrange after game started
+    const rearrangeResult = await new Promise<any>((resolve) => {
+      creatorClient.emit('game:rearrangeSlots', { gameId: game.id, fromSlot: 0, toSlot: 1 }, resolve);
+    });
+
+    expect(rearrangeResult.success).toBe(false);
+    expect(rearrangeResult.error.code).toBe('LOBBY_GAME_STARTED');
+
+    gameEngine.destroyGame(game.id);
+  });
+
   // --- multiple players ---
 
   it('multiple players join and all receive ready updates', async () => {

@@ -8,6 +8,7 @@ import { createLobbyRoutes } from './routes/lobby';
 import { createHistoryRoutes } from './routes/history';
 import { createStatsRoutes } from './routes/stats';
 import { createPreferencesRoutes } from './routes/preferences';
+import { createAIPresetRoutes } from './routes/aiPresets';
 import { createSpectateRoutes } from './routes/spectate';
 import { errorHandler } from './middleware/errorHandler';
 import { securityHeaders } from './middleware/securityHeaders';
@@ -32,6 +33,7 @@ export function createApp(db?: AppDatabase) {
   app.route('/api/me', createHistoryRoutes(database));
   app.route('/api', createStatsRoutes(database));
   app.route('/api', createPreferencesRoutes(database));
+  app.route('/api/me', createAIPresetRoutes(database));
 
   // Production static file serving
   if (config.nodeEnv !== 'development') {

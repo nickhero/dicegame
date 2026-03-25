@@ -1,10 +1,11 @@
 import { Namespace, Socket } from 'socket.io';
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
+import { nanoid } from 'nanoid';
 import { LobbyService } from '../services/LobbyService';
 import { GameEngine, type PlayerSlot } from '../services/GameEngine';
 import { serializeFullState } from '../services/FogFilter';
 import { getDb, type AppDatabase } from '../db/connection';
-import { gamePlayers, users } from '../db/schema';
+import { gamePlayers, gameRooms, users } from '../db/schema';
 import { lobbyBroadcaster } from './lobbyBroadcaster';
 import { PLAYER_COLORS, GameErrorCode } from '@dicewars/shared';
 import type { AITurnRunner } from '../services/AITurnRunner';
@@ -254,6 +255,279 @@ export function setupWaitingRoomHandlers(
       });
     }
   });
+
+  // game:addAI — Creator adds an AI player to an empty slot
+  socket.on(
+    'game:addAI',
+    async (
+      { gameId, slotIndex, personality }: { gameId: string; slotIndex: number; personality: string },
+      ack,
+    ) => {
+      try {
+        const rooms = database.select().from(gameRooms).where(eq(gameRooms.id, gameId)).all();
+        if (rooms.length === 0) {
+          return ack({
+            success: false,
+            error: { code: GameErrorCode.LOBBY_GAME_NOT_FOUND, message: 'Game not found' },
+          });
+        }
+        const room = rooms[0];
+
+        if (room.creatorId !== socket.data.userId) {
+          return ack({
+            success: false,
+            error: { code: GameErrorCode.LOBBY_NOT_CREATOR, message: 'Only the creator can manage slots' },
+          });
+        }
+
+        if (room.status !== 'waiting') {
+          return ack({
+            success: false,
+            error: { code: GameErrorCode.LOBBY_GAME_STARTED, message: 'Game is not in waiting status' },
+          });
+        }
+
+        const playerRows = database
+          .select()
+          .from(gamePlayers)
+          .where(eq(gamePlayers.gameId, gameId))
+          .all();
+
+        const existingSlot = playerRows.find((p) => p.slotIndex === slotIndex);
+        if (existingSlot) {
+          return ack({
+            success: false,
+            error: { code: GameErrorCode.LOBBY_GAME_FULL, message: 'Slot is not empty' },
+          });
+        }
+
+        const id = nanoid();
+        const now = new Date().toISOString();
+        database
+          .insert(gamePlayers)
+          .values({
+            id,
+            gameId,
+            userId: null,
+            slotIndex,
+            isAI: true,
+            aiPersonality: personality,
+            isSpectator: false,
+            joinedAt: now,
+          })
+          .run();
+
+        // Update player count
+        database
+          .update(gameRooms)
+          .set({ currentPlayerCount: playerRows.length + 1 })
+          .where(eq(gameRooms.id, gameId))
+          .run();
+
+        const updatedPlayers = database
+          .select()
+          .from(gamePlayers)
+          .where(eq(gamePlayers.gameId, gameId))
+          .all();
+
+        gameNamespace.to(`game:${gameId}`).emit('game:playerJoined', {
+          playerIndex: slotIndex,
+          name: `AI ${slotIndex + 1}`,
+          isAI: true,
+          personality,
+        });
+
+        ack({ success: true, data: { players: updatedPlayers } });
+      } catch {
+        ack({
+          success: false,
+          error: { code: GameErrorCode.INTERNAL_ERROR, message: 'Failed to add AI' },
+        });
+      }
+    },
+  );
+
+  // game:removeAI — Creator removes an AI player
+  socket.on(
+    'game:removeAI',
+    async ({ gameId, slotIndex }: { gameId: string; slotIndex: number }, ack) => {
+      try {
+        const rooms = database.select().from(gameRooms).where(eq(gameRooms.id, gameId)).all();
+        if (rooms.length === 0) {
+          return ack({
+            success: false,
+            error: { code: GameErrorCode.LOBBY_GAME_NOT_FOUND, message: 'Game not found' },
+          });
+        }
+        const room = rooms[0];
+
+        if (room.creatorId !== socket.data.userId) {
+          return ack({
+            success: false,
+            error: { code: GameErrorCode.LOBBY_NOT_CREATOR, message: 'Only the creator can manage slots' },
+          });
+        }
+
+        if (room.status !== 'waiting') {
+          return ack({
+            success: false,
+            error: { code: GameErrorCode.LOBBY_GAME_STARTED, message: 'Game is not in waiting status' },
+          });
+        }
+
+        const playerRows = database
+          .select()
+          .from(gamePlayers)
+          .where(eq(gamePlayers.gameId, gameId))
+          .all();
+
+        const slot = playerRows.find((p) => p.slotIndex === slotIndex);
+        if (!slot) {
+          return ack({
+            success: false,
+            error: { code: GameErrorCode.GAME_INVALID_TERRITORY, message: 'No player in that slot' },
+          });
+        }
+
+        if (!slot.isAI) {
+          return ack({
+            success: false,
+            error: { code: GameErrorCode.LOBBY_NOT_CREATOR, message: 'Cannot remove a human player' },
+          });
+        }
+
+        database
+          .delete(gamePlayers)
+          .where(and(eq(gamePlayers.gameId, gameId), eq(gamePlayers.slotIndex, slotIndex)))
+          .run();
+
+        // Update player count
+        database
+          .update(gameRooms)
+          .set({ currentPlayerCount: playerRows.length - 1 })
+          .where(eq(gameRooms.id, gameId))
+          .run();
+
+        gameNamespace.to(`game:${gameId}`).emit('game:playerLeft', {
+          playerIndex: slotIndex,
+        });
+
+        ack({ success: true });
+      } catch {
+        ack({
+          success: false,
+          error: { code: GameErrorCode.INTERNAL_ERROR, message: 'Failed to remove AI' },
+        });
+      }
+    },
+  );
+
+  // game:rearrangeSlots — Creator swaps two player slots
+  socket.on(
+    'game:rearrangeSlots',
+    async (
+      { gameId, fromSlot, toSlot }: { gameId: string; fromSlot: number; toSlot: number },
+      ack,
+    ) => {
+      try {
+        const rooms = database.select().from(gameRooms).where(eq(gameRooms.id, gameId)).all();
+        if (rooms.length === 0) {
+          return ack({
+            success: false,
+            error: { code: GameErrorCode.LOBBY_GAME_NOT_FOUND, message: 'Game not found' },
+          });
+        }
+        const room = rooms[0];
+
+        if (room.creatorId !== socket.data.userId) {
+          return ack({
+            success: false,
+            error: { code: GameErrorCode.LOBBY_NOT_CREATOR, message: 'Only the creator can manage slots' },
+          });
+        }
+
+        if (room.status !== 'waiting') {
+          return ack({
+            success: false,
+            error: { code: GameErrorCode.LOBBY_GAME_STARTED, message: 'Game is not in waiting status' },
+          });
+        }
+
+        const playerRows = database
+          .select()
+          .from(gamePlayers)
+          .where(eq(gamePlayers.gameId, gameId))
+          .all();
+
+        const fromPlayer = playerRows.find((p) => p.slotIndex === fromSlot);
+        const toPlayer = playerRows.find((p) => p.slotIndex === toSlot);
+
+        if (!fromPlayer && !toPlayer) {
+          return ack({
+            success: false,
+            error: { code: GameErrorCode.GAME_INVALID_TERRITORY, message: 'Both slots are empty' },
+          });
+        }
+
+        // Swap slot indices using a temporary value to avoid unique constraint issues
+        if (fromPlayer && toPlayer) {
+          // Both occupied — swap
+          database
+            .update(gamePlayers)
+            .set({ slotIndex: -1 })
+            .where(eq(gamePlayers.id, fromPlayer.id))
+            .run();
+          database
+            .update(gamePlayers)
+            .set({ slotIndex: fromSlot })
+            .where(eq(gamePlayers.id, toPlayer.id))
+            .run();
+          database
+            .update(gamePlayers)
+            .set({ slotIndex: toSlot })
+            .where(eq(gamePlayers.id, fromPlayer.id))
+            .run();
+        } else if (fromPlayer) {
+          // Only from is occupied — move to toSlot
+          database
+            .update(gamePlayers)
+            .set({ slotIndex: toSlot })
+            .where(eq(gamePlayers.id, fromPlayer.id))
+            .run();
+        } else if (toPlayer) {
+          // Only to is occupied — move to fromSlot
+          database
+            .update(gamePlayers)
+            .set({ slotIndex: fromSlot })
+            .where(eq(gamePlayers.id, toPlayer.id))
+            .run();
+        }
+
+        const updatedPlayers = database
+          .select()
+          .from(gamePlayers)
+          .where(eq(gamePlayers.gameId, gameId))
+          .all();
+        updatedPlayers.sort((a, b) => a.slotIndex - b.slotIndex);
+
+        gameNamespace.to(`game:${gameId}`).emit('game:slotsRearranged', {
+          players: updatedPlayers.map((p) => ({
+            slotIndex: p.slotIndex,
+            isAI: p.isAI,
+            userId: p.userId,
+            aiPersonality: p.aiPersonality,
+          })),
+        });
+
+        ack({ success: true });
+      } catch {
+        ack({
+          success: false,
+          error: { code: GameErrorCode.INTERNAL_ERROR, message: 'Failed to rearrange slots' },
+        });
+      }
+    },
+  );
 
   // Handle disconnection from waiting room
   socket.on('disconnect', () => {

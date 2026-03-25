@@ -70,3 +70,11 @@ export const userPreferences = sqliteTable('user_preferences', {
   userId: text('user_id').primaryKey().references(() => users.id),
   preferences: text('preferences', { mode: 'json' }).notNull(),
 });
+
+export const customAiPresets = sqliteTable('custom_ai_presets', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id),
+  name: text('name').notNull(),
+  config: text('config').notNull(), // JSON: CustomAIPreset
+  createdAt: text('created_at').notNull(),
+});
