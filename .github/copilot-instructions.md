@@ -121,15 +121,28 @@ Uses grid-based region growing (BFS flood-fill from seed points). Supports both 
 Six AI personality types (aggressive, cautious, expansionist, defender, random, balanced) each with distinct attack thresholds, risk tolerance, and expansion priorities. AI is alliance-aware — considers reputation and diplomatic relationships when choosing targets.
 
 ### Power-ups, Fog of War & Alliances
-Power-ups (Shield, Charge, Fortify, Reinforce) add tactical depth. Fog of war limits visibility to owned + adjacent territories. The alliance system includes reputation tracking, proposals, betrayal mechanics, and AI diplomacy logic.
+Power-ups (Shield, Charge, Fortify, Reinforce) add tactical depth. Fortify clamps dice moved to target capacity (`MAX_DICE_PER_TERRITORY - target.dice`). Fog of war limits visibility to owned + adjacent territories; server sends per-player filtered state via `FogFilter.filterStateForPlayer()`. The alliance system uses a **proposal flow** — `proposeAlliance` creates a proposal; mutual proposals auto-accept, or the target can `respondAlliance`. Attacking an ally breaks the alliance (same as AI path). Includes reputation tracking, betrayal mechanics, and AI diplomacy logic.
+
+### Server architecture (packages/server/src/)
+
+| Directory | Key Files |
+|-----------|-----------|
+| `services/` | `GameEngine.ts`, `AITurnRunner.ts`, `TurnTimer.ts`, `FogFilter.ts`, `handleGameEnd.ts`, `LobbyService.ts`, `MatchHistoryService.ts`, `UserService.ts`, `AIPresetService.ts` |
+| `ws/` | `index.ts` (Socket.IO setup), `gameHandlers.ts`, `disconnectHandler.ts`, `waitingRoom.ts`, `spectatorHandlers.ts`, `serializeState.ts` |
+| `routes/` | `auth.ts`, `lobby.ts`, `history.ts`, `aiPresets.ts`, `preferences.ts`, `spectate.ts`, `stats.ts`, `health.ts` |
+| `middleware/` | `auth.ts`, `errorHandler.ts`, `rateLimit.ts`, `securityHeaders.ts` |
+| `db/` | `schema.ts` (Drizzle), `connection.ts`, `migrate.ts` |
+| `types/` | `api.ts`, `events.ts`, `env.ts` |
+
+`GameEngine` and `AITurnRunner` are module-level singletons (see `*Instance.ts` files). `handleGameEnd` is extracted into its own service so both `gameHandlers.ts` and `AITurnRunner` can call it.
 
 ## Testing
 
 Tests live in each package's `tests/` directory. All game logic tests run against pure TypeScript — no DOM, no Phaser.
 
-- **Shared**: 462+ tests in `packages/shared/tests/` — `npm run test`
-- **Server**: Route/service tests in `packages/server/tests/` — `npm run test:server`
-- **All**: `npm run test:all`
+- **Shared**: 478+ tests in `packages/shared/tests/` — `npm run test`
+- **Server**: 306+ tests (unit + E2E) in `packages/server/tests/` — `npm run test:server`
+- **All**: `npm run test:all` (784+ total)
 
 When modifying game logic, always run `npm run test` to verify. When modifying rendering, run `npm run typecheck` at minimum.
 
