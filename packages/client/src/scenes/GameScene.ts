@@ -3,19 +3,25 @@ import {
   GameState, createInitialGameState, Territory,
   createPlayer,
   generateMap, assignTerritories,
-  canAttackFrom, isValidAttack,
+  canAttackFrom, isValidAttack, executeAttack, endTurn,
+  shouldAISurrender, distributeSurrenderedTerritories,
   getAttackableTerritories, getValidTargets,
   PersonalityType, getRandomPersonality, customPresetToPersonality,
+  PERSONALITIES,
   SPEED_CONFIGS, GameSetupConfig, DEFAULT_SETUP,
   getVisibleTerritories,
-  POWER_UPS,
+  POWER_UPS, useAIPowerUps,
+  selectBestMove,
   estimateWinProbability,
   GameRecorder,
   saveMatch,
   checkAchievements, saveUnlocked, AchievementContext,
   SeededRandom,
   GameStats,
-  createAllianceState, wouldBreakAlliance, AllianceProposal,
+  createAllianceState, wouldBreakAlliance, breakAlliance,
+  tickAlliances, formAlliance, aiWouldAcceptProposal,
+  AllianceProposal,
+  createSnapshot, restoreSnapshot,
   PLAYER_COLORS, GAME_WIDTH, GAME_HEIGHT,
   GameErrorCode,
 } from '@dicewars/shared';
@@ -81,6 +87,9 @@ export class GameScene extends Phaser.Scene {
   private connectionCleanup: (() => void) | null = null;
   private localPlayerIndex: number | undefined;
   private onlineGameOverStats: Record<string, unknown> | null = null;
+  private undoSnapshot: ReturnType<typeof createSnapshot> | null = null;
+  private undoUsedThisTurn = false;
+  private lastAllianceTickTurn = -1;
 
   constructor() {
     super('GameScene');
@@ -311,6 +320,15 @@ export class GameScene extends Phaser.Scene {
       this.uiRenderer.setStatus('Spectator mode — watching AI battle');
     } else {
       this.uiRenderer.setStatus('Select a territory to attack from');
+    }
+
+    // Local game: add initial event log entry and start AI turns if needed
+    this.eventLog.addEvent(
+      `Turn ${this.gameState.turnNumber} — ${this.gameState.players[this.gameState.currentPlayerIndex].name}'s turn`,
+      0xffffff
+    );
+    if (this.spectatorMode || !this.gameState.players[this.gameState.currentPlayerIndex].isHuman) {
+      this.time.delayedCall(500, () => this.processAITurns());
     }
   }
 
@@ -853,23 +871,123 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    if (!this.socketClient) return;
-
-    // Send attack intent to server
-    this.isProcessing = true;
-    try {
-      const ack = await this.socketClient.attack(attackerId, territoryId);
-      if (!ack.success) {
-        this.toastManager.show(ack.error?.message || 'Attack failed', 'error');
+    if (this.isOnlineGame) {
+      // ─── Online: send intent to server ───
+      this.isProcessing = true;
+      try {
+        const ack = await this.socketClient!.attack(attackerId, territoryId);
+        if (!ack.success) {
+          this.toastManager.show(ack.error?.message || 'Attack failed', 'error');
+        }
+      } catch {
+        this.toastManager.show('Connection error', 'error');
+      } finally {
+        this.isProcessing = false;
+        this.gameState.selectedTerritoryId = null;
+        this.gameState.phase = 'selectingAttacker';
       }
-      // Battle result and state update will arrive via WebSocket events
-    } catch {
-      this.toastManager.show('Connection error', 'error');
-    } finally {
-      this.isProcessing = false;
-      this.gameState.selectedTerritoryId = null;
-      this.gameState.phase = 'selectingAttacker';
+    } else {
+      // ─── Local: execute attack directly ───
+      await this.executeLocalAttack(attackerId, territoryId);
     }
+  }
+
+  private async executeLocalAttack(attackerId: number, territoryId: number): Promise<void> {
+    const attackerColor = PLAYER_COLORS[this.gameState.currentPlayerIndex];
+    const defenderColor = PLAYER_COLORS[this.gameState.territories[territoryId].owner];
+
+    const attacker = this.gameState.territories[attackerId];
+    const defender = this.gameState.territories[territoryId];
+    this.territoryEffects.showAttackLine(
+      attacker.center.x, attacker.center.y,
+      defender.center.x, defender.center.y
+    );
+
+    this.isProcessing = true;
+
+    // Save snapshot for undo
+    if (this.undoEnabled && !this.undoUsedThisTurn) {
+      this.undoSnapshot = createSnapshot(this.gameState);
+    }
+
+    const attackerPlayerId = this.gameState.currentPlayerIndex;
+    const defenderPlayerId = this.gameState.territories[territoryId].owner;
+    const aliveBeforeAttack = new Set(
+      this.gameState.players.filter((p) => p.isAlive).map((p) => p.id)
+    );
+
+    // Break alliance if attacking ally
+    if (this.gameState.allianceState && wouldBreakAlliance(this.gameState.allianceState, attackerPlayerId, defenderPlayerId)) {
+      breakAlliance(this.gameState.allianceState, attackerPlayerId, defenderPlayerId);
+    }
+
+    const result = executeAttack(attackerId, territoryId, this.gameState, this.rng);
+    const gameRecorder = this.data.get('gameRecorder') as GameRecorder | undefined;
+    this.gameStats.recordAttack(attackerPlayerId, defenderPlayerId, result, this.gameState);
+    gameRecorder?.recordAction({
+      type: 'attack', attackerId, defenderId: territoryId,
+      attackerPlayerId, defenderPlayerId, result,
+    });
+
+    const outcome = result.attackerWins ? 'won' : 'lost';
+    this.eventLog.addEvent(
+      `${this.gameState.players[attackerPlayerId].name} attacked T${attackerId} → T${territoryId} (${outcome} ${result.attackerTotal} vs ${result.defenderTotal})`,
+      PLAYER_COLORS[attackerPlayerId]
+    );
+
+    // Check for newly eliminated players
+    for (const p of this.gameState.players) {
+      if (aliveBeforeAttack.has(p.id) && !p.isAlive) {
+        this.eventLog.addEvent(`${p.name} was eliminated!`, 0xff4444);
+        gameRecorder?.recordAction({ type: 'elimination', playerId: p.id, eliminatedBy: attackerPlayerId });
+      }
+    }
+
+    // Battle animation
+    this.soundManager.playDiceRoll();
+    await this.battleAnimator.showBattle(
+      result.attackerRolls,
+      result.defenderRolls,
+      attackerColor,
+      defenderColor,
+      result.attackerWins,
+      this.getBattleSpeed(1)
+    );
+
+    this.territoryEffects.hideAttackLine();
+
+    if (result.attackerWins) {
+      this.territoryEffects.showCapturePulse(defender);
+      this.soundManager.playCapture();
+      this.uiRenderer.setStatus(
+        `Victory! ${result.attackerTotal} vs ${result.defenderTotal} — Territory captured!`
+      );
+    } else {
+      this.soundManager.playAttackFail();
+      this.uiRenderer.setStatus(
+        `Defeat! ${result.attackerTotal} vs ${result.defenderTotal} — Attack failed!`
+      );
+    }
+
+    for (const p of this.gameState.players) {
+      if (aliveBeforeAttack.has(p.id) && !p.isAlive) {
+        this.soundManager.playElimination();
+      }
+    }
+
+    // Check for game over
+    if (this.gameState.phase === 'gameOver') {
+      this.time.delayedCall(this.getDelay(1500), () => this.handleGameOver());
+      this.isProcessing = false;
+      this.refreshDisplay();
+      return;
+    }
+
+    // Reset to attacker selection
+    this.gameState.phase = 'selectingAttacker';
+    this.gameState.selectedTerritoryId = null;
+    this.isProcessing = false;
+    this.refreshDisplay();
   }
 
   // ─── Power-Up Activation ──────────────────────────────────
@@ -981,19 +1099,33 @@ export class GameScene extends Phaser.Scene {
   // ─── Undo ────────────────────────────────────────────────
 
   private async undoLastAttack(): Promise<void> {
-    if (!this.socketClient) return;
-    try {
-      const ack = await this.socketClient.undo();
-      if (ack.success && ack.data) {
-        this.gameState = deserializeWireState(ack.data);
-        this.eventLog.addEvent('Undid last attack', 0xaaaaaa);
-        this.refreshDisplay();
-        this.uiRenderer.setStatus('Attack undone. Select a territory to attack from.');
-      } else {
-        this.toastManager.show(ack.error?.message || 'Undo failed', 'error');
+    if (this.isOnlineGame) {
+      if (!this.socketClient) return;
+      try {
+        const ack = await this.socketClient.undo();
+        if (ack.success && ack.data) {
+          this.gameState = deserializeWireState(ack.data);
+          this.eventLog.addEvent('Undid last attack', 0xaaaaaa);
+          this.refreshDisplay();
+          this.uiRenderer.setStatus('Attack undone. Select a territory to attack from.');
+        } else {
+          this.toastManager.show(ack.error?.message || 'Undo failed', 'error');
+        }
+      } catch {
+        this.toastManager.show('Connection error', 'error');
       }
-    } catch {
-      this.toastManager.show('Connection error', 'error');
+    } else {
+      // Local undo
+      if (!this.undoSnapshot) {
+        this.toastManager.show('Nothing to undo', 'info');
+        return;
+      }
+      restoreSnapshot(this.gameState, this.undoSnapshot);
+      this.undoSnapshot = null;
+      this.undoUsedThisTurn = true;
+      this.eventLog.addEvent('Undid last attack', 0xaaaaaa);
+      this.refreshDisplay();
+      this.uiRenderer.setStatus('Attack undone. Select a territory to attack from.');
     }
   }
 
@@ -1153,22 +1285,437 @@ export class GameScene extends Phaser.Scene {
   private async onEndTurn(): Promise<void> {
     if (this.isProcessing) return;
     if (this.gameState.phase === 'gameOver') return;
-    if (!this.socketClient) return;
 
-    this.isProcessing = true;
-    try {
-      const ack = await this.socketClient.endTurn();
-      if (!ack.success) {
-        this.toastManager.show(ack.error?.message || 'End turn failed', 'error');
+    if (this.isOnlineGame) {
+      if (!this.socketClient) return;
+      this.isProcessing = true;
+      try {
+        const ack = await this.socketClient.endTurn();
+        if (!ack.success) {
+          this.toastManager.show(ack.error?.message || 'End turn failed', 'error');
+        }
+      } catch {
+        this.toastManager.show('Connection error', 'error');
+      } finally {
+        this.isProcessing = false;
       }
-      // Turn change, AI actions, and state updates arrive via WebSocket events
-    } catch {
-      this.toastManager.show('Connection error', 'error');
-    } finally {
-      this.isProcessing = false;
+    } else {
+      await this.executeLocalEndTurn();
     }
   }
 
+  private async executeLocalEndTurn(): Promise<void> {
+    this.isProcessing = true;
+    this.gameState.phase = 'selectingAttacker';
+    this.gameState.selectedTerritoryId = null;
+    this.dismissPowerUpPopup();
+
+    // Clear undo state
+    this.undoSnapshot = null;
+    this.undoUsedThisTurn = false;
+
+    const gameRecorder = this.data.get('gameRecorder') as GameRecorder | undefined;
+    const playerIdx = this.gameState.currentPlayerIndex;
+    const player = this.gameState.players[playerIdx];
+    const diceBefore = this.snapshotDice(player.id);
+
+    const { spawn } = endTurn(this.gameState, this.rng);
+
+    if (this.gameState.allianceState) {
+      this.processAllianceTick();
+    }
+
+    this.logSpawn(spawn);
+
+    const diceAfter = this.snapshotDice(player.id);
+    let bonus = 0;
+    diceAfter.forEach((count, id) => {
+      bonus += count - (diceBefore.get(id) ?? 0);
+    });
+
+    gameRecorder?.recordAction({ type: 'endTurn', playerId: playerIdx, bonusDice: bonus > 0 ? bonus : 0 });
+    gameRecorder?.endCurrentTurn();
+    this.gameStats.recordTurnStart(this.gameState);
+    gameRecorder?.startTurn(this.gameState.turnNumber, this.gameState.currentPlayerIndex);
+
+    if (bonus > 0) {
+      this.eventLog.addEvent(
+        `${player.name} received ${bonus} bonus dice`,
+        PLAYER_COLORS[playerIdx]
+      );
+      this.showDiceDistribution(diceBefore, diceAfter, PLAYER_COLORS[playerIdx]);
+    }
+
+    this.eventLog.addEvent(
+      `Turn ${this.gameState.turnNumber} — ${this.gameState.players[this.gameState.currentPlayerIndex].name}'s turn`,
+      0xffffff
+    );
+
+    this.refreshDisplay();
+
+    if ((this.gameState.phase as string) === 'gameOver') {
+      this.time.delayedCall(this.getDelay(1000), () => this.handleGameOver());
+      this.isProcessing = false;
+      return;
+    }
+
+    await this.processAITurns();
+  }
+
+  // ─── Local AI Turn Processing ──────────────────────────────
+
+  private async processAITurns(): Promise<void> {
+    const currentPlayer = this.gameState.players[this.gameState.currentPlayerIndex];
+    const gameRecorder = this.data.get('gameRecorder') as GameRecorder | undefined;
+
+    if (!currentPlayer.isHuman && currentPlayer.isAlive) {
+      const playerColorHex = '#' + currentPlayer.color.toString(16).padStart(6, '0');
+      const thinkingText = this.add.text(
+        GAME_WIDTH / 2, 45,
+        `${currentPlayer.name} is thinking.`,
+        {
+          fontSize: '16px',
+          color: playerColorHex,
+          fontFamily: 'monospace',
+          fontStyle: 'bold',
+          stroke: '#000000',
+          strokeThickness: 3,
+        }
+      ).setOrigin(0.5).setDepth(150);
+
+      let dotCount = 1;
+      const thinkingTimer = this.time.addEvent({
+        delay: 400,
+        loop: true,
+        callback: () => {
+          dotCount = (dotCount % 3) + 1;
+          thinkingText.setText(`${currentPlayer.name} is thinking${'.'.repeat(dotCount)}`);
+        },
+      });
+
+      this.uiRenderer.setStatus(`${currentPlayer.name} is thinking...`);
+      this.refreshDisplay();
+
+      await this.delay(this.getDelay(800));
+
+      // Check surrender
+      if (shouldAISurrender(this.gameState, currentPlayer.id)) {
+        thinkingTimer.destroy();
+        thinkingText.destroy();
+        this.eventLog.addEvent(`${currentPlayer.name} surrendered!`, 0xff4444);
+        gameRecorder?.recordAction({ type: 'surrender', playerId: currentPlayer.id });
+        distributeSurrenderedTerritories(this.gameState, currentPlayer.id);
+        this.refreshDisplay();
+
+        if ((this.gameState.phase as string) === 'gameOver') {
+          gameRecorder?.endCurrentTurn();
+          this.time.delayedCall(this.getDelay(1000), () => this.handleGameOver());
+          this.isProcessing = false;
+          return;
+        }
+
+        gameRecorder?.recordAction({ type: 'endTurn', playerId: currentPlayer.id, bonusDice: 0 });
+        gameRecorder?.endCurrentTurn();
+        endTurn(this.gameState, this.rng);
+        this.gameStats.recordTurnStart(this.gameState);
+        gameRecorder?.startTurn(this.gameState.turnNumber, this.gameState.currentPlayerIndex);
+
+        if ((this.gameState.phase as string) === 'gameOver') {
+          gameRecorder?.endCurrentTurn();
+          this.time.delayedCall(this.getDelay(1000), () => this.handleGameOver());
+          this.isProcessing = false;
+          return;
+        }
+
+        await this.advanceToNextPlayer();
+        return;
+      }
+
+      // AI power-ups
+      const aliveBeforeAI = new Set(
+        this.gameState.players.filter((p) => p.isAlive).map((p) => p.id)
+      );
+
+      if (this.gameState.powerUpsEnabled) {
+        const powerUpResults = useAIPowerUps(this.gameState);
+        for (const result of powerUpResults) {
+          this.eventLog.addEvent(`${currentPlayer.name} ${result.description}`, currentPlayer.color);
+          if (result.action) {
+            gameRecorder?.recordAction(result.action);
+          }
+        }
+        if (powerUpResults.length > 0) {
+          this.refreshDisplay();
+          await this.delay(this.getDelay(400));
+        }
+      }
+
+      // AI attacks
+      const personality = currentPlayer.customPersonalityConfig ?? PERSONALITIES[currentPlayer.personality ?? 'balanced'];
+      const maxAttacks = Math.min(personality.maxAttacksPerTurn, 50);
+      let attackCount = 0;
+      let wins = 0;
+      let losses = 0;
+
+      const aiVisibleSet = this.fogOfWarEnabled
+        ? getVisibleTerritories(this.gameState, currentPlayer.id)
+        : undefined;
+
+      while (attackCount < maxAttacks) {
+        const move = selectBestMove(this.gameState, this.rng, undefined, aiVisibleSet);
+        if (!move) break;
+        if (!isValidAttack(move.attackerId, move.defenderId, this.gameState)) break;
+
+        const attackerColor = PLAYER_COLORS[this.gameState.currentPlayerIndex];
+        const defenderColor = PLAYER_COLORS[this.gameState.territories[move.defenderId].owner];
+
+        if (this.speed !== 'instant') {
+          this.mapRenderer.highlightTerritory(
+            this.gameState.territories[move.attackerId], attackerColor
+          );
+          await this.delay(this.getDelay(200));
+          this.mapRenderer.clearHighlight();
+
+          this.mapRenderer.highlightTerritory(
+            this.gameState.territories[move.defenderId], defenderColor
+          );
+          await this.delay(this.getDelay(200));
+          this.mapRenderer.clearHighlight();
+        }
+
+        const attackerT = this.gameState.territories[move.attackerId];
+        const defenderT = this.gameState.territories[move.defenderId];
+        this.territoryEffects.showAttackLine(
+          attackerT.center.x, attackerT.center.y,
+          defenderT.center.x, defenderT.center.y
+        );
+
+        const attackerPlayerId = this.gameState.currentPlayerIndex;
+        const defenderPlayerId = this.gameState.territories[move.defenderId].owner;
+
+        if (this.gameState.allianceState && wouldBreakAlliance(this.gameState.allianceState, attackerPlayerId, defenderPlayerId)) {
+          breakAlliance(this.gameState.allianceState, attackerPlayerId, defenderPlayerId);
+          this.eventLog.addEvent(`⚔️ ${currentPlayer.name} betrayed ${this.gameState.players[defenderPlayerId].name}!`, 0xff6644);
+          gameRecorder?.recordAction({ type: 'allianceBroken', breakerId: attackerPlayerId, otherId: defenderPlayerId });
+        }
+
+        const result = executeAttack(move.attackerId, move.defenderId, this.gameState, this.rng);
+        this.gameStats.recordAttack(attackerPlayerId, defenderPlayerId, result, this.gameState);
+        gameRecorder?.recordAction({
+          type: 'attack', attackerId: move.attackerId, defenderId: move.defenderId,
+          attackerPlayerId, defenderPlayerId, result,
+        });
+        this.refreshDisplay();
+        attackCount++;
+
+        if (result.attackerWins) wins++;
+        else losses++;
+
+        const outcome = result.attackerWins ? 'won' : 'lost';
+        this.eventLog.addEvent(
+          `${currentPlayer.name} attacked T${move.attackerId} → T${move.defenderId} (${outcome} ${result.attackerTotal} vs ${result.defenderTotal})`,
+          currentPlayer.color
+        );
+
+        this.soundManager.playDiceRoll();
+        await this.battleAnimator.showBattle(
+          result.attackerRolls,
+          result.defenderRolls,
+          attackerColor,
+          defenderColor,
+          result.attackerWins,
+          this.getBattleSpeed(2)
+        );
+
+        this.territoryEffects.hideAttackLine();
+        if (result.attackerWins) {
+          this.territoryEffects.showCapturePulse(defenderT);
+        }
+
+        if (this.gameState.phase === 'gameOver') break;
+        await this.delay(this.getDelay(300));
+      }
+
+      thinkingTimer.destroy();
+      thinkingText.destroy();
+
+      if (attackCount > 0) {
+        this.eventLog.addEvent(
+          `${currentPlayer.name} made ${attackCount} attack${attackCount !== 1 ? 's' : ''} (won ${wins}, lost ${losses})`,
+          currentPlayer.color
+        );
+      } else {
+        this.eventLog.addEvent(`${currentPlayer.name} ended without attacking`, currentPlayer.color);
+      }
+
+      // Check eliminations
+      for (const p of this.gameState.players) {
+        if (aliveBeforeAI.has(p.id) && !p.isAlive) {
+          this.eventLog.addEvent(`${p.name} was eliminated!`, 0xff4444);
+          gameRecorder?.recordAction({ type: 'elimination', playerId: p.id, eliminatedBy: currentPlayer.id });
+          this.soundManager.playElimination();
+        }
+      }
+
+      if ((this.gameState.phase as string) === 'gameOver') {
+        gameRecorder?.endCurrentTurn();
+        this.refreshDisplay();
+        this.time.delayedCall(this.getDelay(1000), () => this.handleGameOver());
+        this.isProcessing = false;
+        return;
+      }
+
+      // End AI turn
+      const aiDiceBefore = this.snapshotDice(currentPlayer.id);
+      const { spawn: aiSpawn } = endTurn(this.gameState, this.rng);
+
+      if (this.gameState.allianceState) {
+        this.processAllianceTick();
+      }
+
+      this.logSpawn(aiSpawn);
+
+      const aiDiceAfter = this.snapshotDice(currentPlayer.id);
+      let aiBonus = 0;
+      aiDiceAfter.forEach((count, id) => {
+        aiBonus += count - (aiDiceBefore.get(id) ?? 0);
+      });
+
+      gameRecorder?.recordAction({ type: 'endTurn', playerId: currentPlayer.id, bonusDice: aiBonus > 0 ? aiBonus : 0 });
+      gameRecorder?.endCurrentTurn();
+      this.gameStats.recordTurnStart(this.gameState);
+      gameRecorder?.startTurn(this.gameState.turnNumber, this.gameState.currentPlayerIndex);
+
+      if (aiBonus > 0) {
+        this.eventLog.addEvent(`${currentPlayer.name} received ${aiBonus} bonus dice`, currentPlayer.color);
+        this.showDiceDistribution(aiDiceBefore, aiDiceAfter, currentPlayer.color);
+      }
+
+      this.eventLog.addEvent(
+        `Turn ${this.gameState.turnNumber} — ${this.gameState.players[this.gameState.currentPlayerIndex].name}'s turn`,
+        0xffffff
+      );
+
+      this.refreshDisplay();
+
+      if ((this.gameState.phase as string) === 'gameOver') {
+        gameRecorder?.endCurrentTurn();
+        this.time.delayedCall(this.getDelay(1000), () => this.handleGameOver());
+        this.isProcessing = false;
+        return;
+      }
+
+      await this.advanceToNextPlayer();
+    } else {
+      await this.advanceToNextPlayer();
+    }
+  }
+
+  private async advanceToNextPlayer(): Promise<void> {
+    const nextPlayer = this.gameState.players[this.gameState.currentPlayerIndex];
+
+    if (this.spectatorMode) {
+      if (this.spectatorPaused) {
+        this.isProcessing = false;
+        return;
+      }
+      await this.delay(this.getDelay(500));
+      await this.processAITurns();
+    } else if (!nextPlayer.isHuman && nextPlayer.isAlive) {
+      await this.delay(this.getDelay(500));
+      await this.processAITurns();
+    } else {
+      this.isProcessing = false;
+      this.soundManager.playTurnStart();
+      this.uiRenderer.setStatus('Your turn! Select a territory to attack from.');
+      this.refreshDisplay();
+    }
+  }
+
+
+  // ─── Local Game Helpers ──────────────────────────────────
+
+  private snapshotDice(playerId: number): Map<number, number> {
+    const map = new Map<number, number>();
+    for (const t of this.gameState.territories) {
+      if (t.owner === playerId) map.set(t.id, t.dice);
+    }
+    return map;
+  }
+
+  private showDiceDistribution(before: Map<number, number>, after: Map<number, number>, color: number): void {
+    after.forEach((count, id) => {
+      const prev = before.get(id) ?? 0;
+      if (count > prev) {
+        const t = this.gameState.territories[id];
+        if (t) {
+          const label = this.add.text(t.center.x, t.center.y - 20, `+${count - prev}`, {
+            fontSize: '12px',
+            color: '#' + color.toString(16).padStart(6, '0'),
+            fontFamily: 'monospace',
+            fontStyle: 'bold',
+            stroke: '#000000',
+            strokeThickness: 2,
+          }).setOrigin(0.5).setDepth(300);
+          this.tweens.add({
+            targets: label,
+            y: label.y - 20,
+            alpha: 0,
+            duration: 1200,
+            ease: 'Power1',
+            onComplete: () => label.destroy(),
+          });
+        }
+      }
+    });
+  }
+
+  private logSpawn(spawn: { territoryId: number; powerUpType: string } | null | undefined): void {
+    if (!spawn) return;
+    const territory = this.gameState.territories[spawn.territoryId];
+    const ownerName = territory ? this.gameState.players[territory.owner]?.name ?? 'Unknown' : 'Unknown';
+    this.eventLog.addEvent(
+      `⚡ ${spawn.powerUpType} spawned on T${spawn.territoryId} (${ownerName})`,
+      0xffcc00,
+    );
+  }
+
+  private processAllianceTick(): void {
+    if (!this.gameState.allianceState) return;
+    if (this.gameState.turnNumber <= this.lastAllianceTickTurn) return;
+    this.lastAllianceTickTurn = this.gameState.turnNumber;
+
+    const gameRecorder = this.data.get('gameRecorder') as GameRecorder | undefined;
+    const tickResult = tickAlliances(this.gameState.allianceState, this.gameState, this.rng);
+
+    for (const a of tickResult.expired) {
+      this.eventLog.addEvent(
+        `📜 Alliance between ${this.gameState.players[a.player1].name} and ${this.gameState.players[a.player2].name} expired`,
+        0x999999
+      );
+      gameRecorder?.recordAction({ type: 'allianceExpired', player1: a.player1, player2: a.player2 });
+    }
+
+    for (const proposal of tickResult.newProposals) {
+      gameRecorder?.recordAction({ type: 'allianceProposal', fromPlayer: proposal.fromPlayer, toPlayer: proposal.toPlayer });
+
+      if (proposal.toPlayer === 0 && !this.spectatorMode) {
+        this.showAllianceProposal(proposal);
+      } else {
+        const target = this.gameState.players[proposal.toPlayer];
+        if (target && target.isAlive && target.personality) {
+          if (aiWouldAcceptProposal(this.gameState.allianceState!, this.gameState, proposal)) {
+            formAlliance(this.gameState.allianceState!, proposal.fromPlayer, proposal.toPlayer, this.gameState.turnNumber);
+            this.eventLog.addEvent(
+              `🤝 ${this.gameState.players[proposal.fromPlayer].name} and ${target.name} formed an alliance`,
+              0x44ddff
+            );
+            gameRecorder?.recordAction({ type: 'allianceFormed', player1: proposal.fromPlayer, player2: proposal.toPlayer, duration: 5 });
+          }
+        }
+      }
+    }
+  }
 
   private delay(ms: number): Promise<void> {
     if (ms <= 0) return Promise.resolve();
@@ -1419,7 +1966,9 @@ export class GameScene extends Phaser.Scene {
     this.mapRenderer.drawMap(this.gameState, selectedId, validTargets, attackable, visibleSet);
     this.diceRenderer.drawDiceStacks(this.gameState.territories, visibleSet);
     this.uiRenderer.update(this.gameState, this.localPlayerIndex);
-    this.uiRenderer.setUndoVisible(false); // Undo managed by server in online mode
+    this.uiRenderer.setUndoVisible(
+      !this.isOnlineGame && this.undoEnabled && this.undoSnapshot !== null && !this.undoUsedThisTurn
+    );
     this.territoryEffects.updateLowDiceWarnings(this.gameState);
   }
 
