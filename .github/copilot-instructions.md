@@ -6,7 +6,11 @@ DiceWars is a browser-based 2D pixel art strategy game inspired by DiceWars/KDic
 
 ## Architecture — CRITICAL
 
-This is a **monorepo** (npm workspaces) with three packages:
+This is a **monorepo** (npm workspaces) with three packages. Each has its own `copilot-instructions.md` with package-specific rules:
+
+- [`packages/shared/.github/copilot-instructions.md`](../packages/shared/.github/copilot-instructions.md) — Zero-dependency rules, testing patterns
+- [`packages/server/.github/copilot-instructions.md`](../packages/server/.github/copilot-instructions.md) — Server architecture, DB, WebSocket events
+- [`packages/client/.github/copilot-instructions.md`](../packages/client/.github/copilot-instructions.md) — Phaser scenes, rendering, online vs local
 
 ```
 packages/

@@ -45,7 +45,7 @@ src/
 ## Commands
 
 ```bash
-npm run test          # Run all 462+ tests
+npm run test          # Run all 478+ tests
 npm run test:watch    # Watch mode
 npm run typecheck     # Type-check only
 npm run build         # Build declarations
