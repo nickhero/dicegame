@@ -162,21 +162,25 @@ export class SetupScene extends Phaser.Scene {
 
     rowY += 6 * 34 + 10; // reserve max 6 rows (spectator mode)
 
-    // --- Speed row ---
-    this.add.text(left + 30, rowY, 'Speed:', LABEL_STYLE);
-    this.speedBtns = SPEED_OPTIONS.map((opt, i) => {
-      const btn = this.createButton(
-        left + 160 + i * 100, rowY - 5, 80, 30, opt.label,
-        () => {
-          this.config.speed = opt.value;
-          this.refreshSpeedBtns();
-        },
-      );
-      return { value: opt.value, ...btn };
-    });
-    this.refreshSpeedBtns();
-
-    rowY += 55;
+    // --- Speed row (local games only) ---
+    if (!this.multiplayer) {
+      this.add.text(left + 30, rowY, 'Speed:', LABEL_STYLE);
+      this.speedBtns = SPEED_OPTIONS.map((opt, i) => {
+        const btn = this.createButton(
+          left + 160 + i * 100, rowY - 5, 80, 30, opt.label,
+          () => {
+            this.config.speed = opt.value;
+            this.refreshSpeedBtns();
+          },
+        );
+        return { value: opt.value, ...btn };
+      });
+      this.refreshSpeedBtns();
+      rowY += 55;
+    } else {
+      // Online games always use normal speed
+      this.config.speed = 'normal';
+    }
 
     // --- Map Shape row ---
     this.add.text(left + 30, rowY, 'Shape:', LABEL_STYLE);
@@ -197,42 +201,52 @@ export class SetupScene extends Phaser.Scene {
 
     // --- Options row (toggles) ---
     this.add.text(left + 30, rowY, 'Options:', LABEL_STYLE);
+    let optX = left + 160;
+
     this.fogOfWarBtn = this.createButton(
-      left + 160, rowY - 5, 110, 30, 'Fog of War',
+      optX, rowY - 5, 110, 30, 'Fog of War',
       () => {
         this.config.fogOfWar = !this.config.fogOfWar;
         this.fogOfWarBtn.redraw(this.config.fogOfWar);
       },
     );
     this.fogOfWarBtn.redraw(this.config.fogOfWar);
+    optX += 125;
 
     this.powerUpsBtn = this.createButton(
-      left + 285, rowY - 5, 110, 30, 'Power-Ups',
+      optX, rowY - 5, 110, 30, 'Power-Ups',
       () => {
         this.config.powerUps = !this.config.powerUps;
         this.powerUpsBtn.redraw(this.config.powerUps);
       },
     );
     this.powerUpsBtn.redraw(this.config.powerUps);
+    optX += 125;
 
-    this.spectatorBtn = this.createButton(
-      left + 410, rowY - 5, 110, 30, 'Spectator',
-      () => {
-        this.config.spectatorMode = !this.config.spectatorMode;
-        this.spectatorBtn.redraw(this.config.spectatorMode);
-        this.rebuildAIRows();
-      },
-    );
-    this.spectatorBtn.redraw(this.config.spectatorMode);
+    if (!this.multiplayer) {
+      this.spectatorBtn = this.createButton(
+        optX, rowY - 5, 110, 30, 'Spectator',
+        () => {
+          this.config.spectatorMode = !this.config.spectatorMode;
+          this.spectatorBtn.redraw(this.config.spectatorMode);
+          this.rebuildAIRows();
+        },
+      );
+      this.spectatorBtn.redraw(this.config.spectatorMode);
+      optX += 125;
 
-    this.undoEnabledBtn = this.createButton(
-      left + 535, rowY - 5, 110, 30, 'Undo',
-      () => {
-        this.config.undoEnabled = !this.config.undoEnabled;
-        this.undoEnabledBtn.redraw(this.config.undoEnabled);
-      },
-    );
-    this.undoEnabledBtn.redraw(this.config.undoEnabled);
+      this.undoEnabledBtn = this.createButton(
+        optX, rowY - 5, 110, 30, 'Undo',
+        () => {
+          this.config.undoEnabled = !this.config.undoEnabled;
+          this.undoEnabledBtn.redraw(this.config.undoEnabled);
+        },
+      );
+      this.undoEnabledBtn.redraw(this.config.undoEnabled);
+    } else {
+      this.config.spectatorMode = false;
+      this.config.undoEnabled = false;
+    }
 
     rowY += 65;
 
