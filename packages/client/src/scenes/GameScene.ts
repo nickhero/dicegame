@@ -123,6 +123,11 @@ export class GameScene extends Phaser.Scene {
     }
     this.speed = this.setupConfig.speed;
 
+    // Online games always use normal speed (no fast/instant)
+    if (this.isOnlineGame) {
+      this.speed = 'normal';
+    }
+
     // If server sent initial state, deserialize it
     if (data?.initialState) {
       this.gameState = deserializeWireState(data.initialState);
@@ -139,7 +144,7 @@ export class GameScene extends Phaser.Scene {
     // Online game: state comes from server
     if (this.isOnlineGame && this.gameState) {
       this.fogOfWarEnabled = this.setupConfig.fogOfWar;
-      this.undoEnabled = this.setupConfig.undoEnabled ?? true;
+      this.undoEnabled = false; // No undo in online games
       this.spectatorMode = this.setupConfig.spectatorMode ?? false;
     } else {
       // Offline/local game: generate map locally
@@ -501,10 +506,12 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    // 1/2/3 — change speed (always works, even during AI processing)
-    if (key === '1') { this.setSpeed('normal'); return; }
-    if (key === '2') { this.setSpeed('fast'); return; }
-    if (key === '3') { this.setSpeed('instant'); return; }
+    // 1/2/3 — change speed (local games only; online always normal)
+    if (!this.isOnlineGame) {
+      if (key === '1') { this.setSpeed('normal'); return; }
+      if (key === '2') { this.setSpeed('fast'); return; }
+      if (key === '3') { this.setSpeed('instant'); return; }
+    }
 
     // Space — pause/resume in spectator mode
     if (key === ' ' && this.spectatorMode) {
@@ -608,9 +615,9 @@ export class GameScene extends Phaser.Scene {
       ['E / Space', 'End turn'],
       ...(this.undoEnabled ? [['Z', 'Undo last attack']] : []),
       ['Escape', 'Deselect territory'],
-      ['1 / 2 / 3', 'Speed: Normal/Fast/Instant'],
+      ...(!this.isOnlineGame ? [['1 / 2 / 3', 'Speed: Normal/Fast/Instant']] : []),
       ['S', 'Surrender'],
-      ['R', 'Restart game'],
+      ...(!this.isOnlineGame ? [['R', 'Restart game']] : []),
       ['M', 'Toggle sound'],
       ['H / ?', 'Toggle this help'],
     ];
@@ -1729,10 +1736,7 @@ export class GameScene extends Phaser.Scene {
   private getBattleSpeed(baseSpeed: number): number {
     const multiplier = SPEED_CONFIGS[this.speed].multiplier;
     if (multiplier === 0) return 0;
-    const speed = baseSpeed / multiplier;
-    // Cap battle speed so animations remain readable (max 1.5x in online)
-    if (this.isOnlineGame && speed > 1.5) return 1.5;
-    return speed;
+    return baseSpeed / multiplier;
   }
 
   private setSpeed(newSpeed: GameSetupConfig['speed']): void {
