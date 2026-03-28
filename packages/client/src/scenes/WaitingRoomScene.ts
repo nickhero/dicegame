@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import {
   GAME_WIDTH, GAME_HEIGHT,
   PLAYER_COLORS, PLAYER_COLOR_STRINGS,
-  type WireGameState, type WirePlayer,
+  type WireGameState,
 } from '@dicewars/shared';
 import { AuthClient } from '../network/AuthClient';
 import { LobbyClient } from '../network/LobbyClient';
@@ -17,6 +17,22 @@ interface WaitingRoomData {
   maxPlayers?: number;
 }
 
+interface RoomPlayer {
+  index: number;
+  name: string;
+  isAI: boolean;
+  personality?: string;
+  ready: boolean;
+  connected: boolean;
+  userId?: string;
+}
+
+interface RoomJoinData {
+  players: RoomPlayer[];
+  maxPlayers: number;
+  myUserId?: string;
+}
+
 interface PlayerSlot {
   index: number;
   name: string;
@@ -24,6 +40,7 @@ interface PlayerSlot {
   personality?: string;
   ready: boolean;
   connected: boolean;
+  userId?: string;
 }
 
 export class WaitingRoomScene extends Phaser.Scene {
@@ -34,6 +51,7 @@ export class WaitingRoomScene extends Phaser.Scene {
   private gameName = '';
   private isCreator = false;
   private maxPlayers = 4;
+  private myUserId = '';
   private players: PlayerSlot[] = [];
   private isReady = false;
   private playerListContainer!: Phaser.GameObjects.Container;
@@ -44,8 +62,9 @@ export class WaitingRoomScene extends Phaser.Scene {
   private readyBg!: Phaser.GameObjects.Graphics;
 
   // Event handler references for cleanup
-  private playerJoinedHandler!: (data: { playerIndex: number; name: string; isAI: boolean }) => void;
+  private playerJoinedHandler!: (data: { playerIndex: number; name: string; isAI: boolean; userId?: string }) => void;
   private playerLeftHandler!: (data: { playerIndex: number }) => void;
+  private readyStateHandler!: (data: { userId: string; ready: boolean; readyPlayers: string[] }) => void;
   private stateUpdateHandler!: (state: WireGameState) => void;
 
   constructor() {
@@ -155,6 +174,7 @@ export class WaitingRoomScene extends Phaser.Scene {
     if (this.socketClient) {
       this.socketClient.off('game:playerJoined', this.playerJoinedHandler);
       this.socketClient.off('game:playerLeft', this.playerLeftHandler);
+      this.socketClient.off('game:readyState', this.readyStateHandler);
       this.socketClient.off('game:stateUpdate', this.stateUpdateHandler);
     }
   }
@@ -165,13 +185,20 @@ export class WaitingRoomScene extends Phaser.Scene {
     try {
       this.socketClient = new SocketClient();
       const token = this.authClient.getToken()!;
-      await this.socketClient.connect(token);
+      await this.socketClient.connect(token, '/game');
 
       this.setupSocketListeners();
 
       const result = await this.socketClient.joinGame(this.gameId);
       if (result.success && result.data) {
-        this.syncPlayersFromState(result.data);
+        // The join response contains room player data
+        const roomData = result.data as unknown as RoomJoinData;
+        if (roomData.maxPlayers) {
+          this.maxPlayers = roomData.maxPlayers;
+        }
+        if (roomData.players) {
+          this.syncPlayersFromRoom(roomData.players);
+        }
       }
 
       this.statusText.setText('Waiting for players...').setColor('#aaaaaa');
@@ -191,6 +218,7 @@ export class WaitingRoomScene extends Phaser.Scene {
           isAI: data.isAI,
           ready: data.isAI,
           connected: true,
+          userId: data.userId,
         });
         this.renderPlayerList();
         this.updateStartButton();
@@ -203,34 +231,42 @@ export class WaitingRoomScene extends Phaser.Scene {
       this.updateStartButton();
     };
 
-    this.stateUpdateHandler = (state) => {
-      if (!state.gameOver && state.turnNumber >= 1) {
-        // Game has started
-        this.scene.start('GameScene', {
-          gameId: this.gameId,
-          authClient: this.authClient,
-          lobbyClient: this.lobbyClient,
-          socketClient: this.socketClient,
-          initialState: state,
-        });
-      } else {
-        this.syncPlayersFromState(state);
+    this.readyStateHandler = (data: { userId: string; ready: boolean; readyPlayers: string[] }) => {
+      for (const p of this.players) {
+        if (p.userId === data.userId) {
+          p.ready = data.ready;
+        }
       }
+      this.renderPlayerList();
+      this.updateStartButton();
+    };
+
+    this.stateUpdateHandler = (state: WireGameState) => {
+      // Game has started — transition to GameScene
+      this.scene.start('GameScene', {
+        gameId: this.gameId,
+        authClient: this.authClient,
+        lobbyClient: this.lobbyClient,
+        socketClient: this.socketClient,
+        initialState: state,
+      });
     };
 
     this.socketClient.on('game:playerJoined', this.playerJoinedHandler);
     this.socketClient.on('game:playerLeft', this.playerLeftHandler);
+    this.socketClient.on('game:readyState', this.readyStateHandler);
     this.socketClient.on('game:stateUpdate', this.stateUpdateHandler);
   }
 
-  private syncPlayersFromState(state: WireGameState): void {
-    this.players = state.players.map((p: WirePlayer) => ({
+  private syncPlayersFromRoom(players: RoomPlayer[]): void {
+    this.players = players.map((p) => ({
       index: p.index,
       name: p.name,
       isAI: p.isAI,
       personality: p.personality,
-      ready: p.isAI || p.connected,
+      ready: p.ready,
       connected: p.connected,
+      userId: p.userId,
     }));
     this.renderPlayerList();
     this.updateStartButton();
@@ -335,6 +371,15 @@ export class WaitingRoomScene extends Phaser.Scene {
 
   private async toggleReady(): Promise<void> {
     this.isReady = !this.isReady;
+    // Update local player's ready state immediately for responsive UI
+    const myId = this.authClient.getUser()?.id ?? '';
+    for (const p of this.players) {
+      if (p.userId === myId) {
+        p.ready = this.isReady;
+      }
+    }
+    this.renderPlayerList();
+    this.updateStartButton();
     try {
       await this.socketClient.ready();
     } catch {
@@ -347,7 +392,11 @@ export class WaitingRoomScene extends Phaser.Scene {
 
     this.statusText.setText('Starting game...').setColor('#aaaaaa');
     try {
-      await this.lobbyClient.startGame(this.gameId);
+      const result = await this.socketClient.startGame(this.gameId);
+      if (!result.success) {
+        this.statusText.setText(result.error?.message || 'Failed to start').setColor('#e94560');
+      }
+      // On success, the server emits game:stateUpdate which triggers scene transition
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to start game';
       this.statusText.setText(message).setColor('#e94560');

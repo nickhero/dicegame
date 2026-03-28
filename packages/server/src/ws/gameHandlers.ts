@@ -1,5 +1,6 @@
 import type { Namespace, Socket } from 'socket.io';
 import type { GameErrorCode } from '@dicewars/shared';
+import { GameStats } from '@dicewars/shared';
 import { GameEngine, GameEngineError } from '../services/GameEngine';
 import type { ActiveGame } from '../services/GameEngine';
 import { serializeGameState } from './serializeState';
@@ -13,6 +14,20 @@ import { handleGameEnd } from '../services/handleGameEnd';
 const GAME_CLEANUP_DELAY_MS = 5 * 60 * 1000;
 
 const SPECTATOR_ERROR = { code: 'SPECTATOR_CANNOT_ACT' as GameErrorCode, message: 'Spectators cannot perform game actions' };
+
+function computeWireStats(game: ActiveGame): Record<string, unknown> {
+  try {
+    game.recorder.endCurrentTurn();
+    const recording = game.recorder.getRecording(
+      game.state.winner,
+      game.state.players[game.state.winner ?? -1]?.name ?? 'Unknown',
+    );
+    const summary = GameStats.computeFromRecording(recording);
+    return GameStats.serializeStats(summary);
+  } catch {
+    return {};
+  }
+}
 
 export function setupGameActionHandlers(
   socket: Socket,
@@ -43,23 +58,18 @@ export function setupGameActionHandlers(
   }
 
   function emitStateUpdate(gameId: string, game: ActiveGame) {
-    if (game.config.fogOfWar) {
-      for (const [, sock] of gameNamespace.sockets) {
-        if (sock.rooms.has(`game:${gameId}`) && sock.data.userId) {
-          const playerIndex = game.playerMap.get(sock.data.userId as string) ?? -1;
-          const state = filterStateForPlayer(game, playerIndex);
-          if (turnTimer) {
-            state.turnTimerRemaining = turnTimer.getRemainingSeconds(gameId);
-          }
-          sock.emit('game:stateUpdate', state);
+    for (const [, sock] of gameNamespace.sockets) {
+      if (sock.rooms.has(`game:${gameId}`) && sock.data.userId) {
+        const playerIndex = game.playerMap.get(sock.data.userId as string) ?? -1;
+        const state = game.config.fogOfWar
+          ? filterStateForPlayer(game, playerIndex)
+          : serializeGameState(game);
+        if (turnTimer) {
+          state.turnTimerRemaining = turnTimer.getRemainingSeconds(gameId);
         }
+        state.localPlayerIndex = playerIndex;
+        sock.emit('game:stateUpdate', state);
       }
-    } else {
-      const state = serializeGameState(game);
-      if (turnTimer) {
-        state.turnTimerRemaining = turnTimer.getRemainingSeconds(gameId);
-      }
-      gameNamespace.to(`game:${gameId}`).emit('game:stateUpdate', state);
     }
   }
 
@@ -104,7 +114,7 @@ export function setupGameActionHandlers(
         if (turnTimer) turnTimer.destroyGame(gameId);
         gameNamespace.to(`game:${gameId}`).emit('game:gameOver', {
           winnerIndex: result.gameOver.winnerIndex,
-          stats: {},
+          stats: computeWireStats(updatedGame),
         });
         handleGameEnd(gameId, updatedGame, db);
         setTimeout(() => gameEngine.destroyGame(gameId), GAME_CLEANUP_DELAY_MS);
@@ -214,7 +224,7 @@ export function setupGameActionHandlers(
         if (turnTimer) turnTimer.destroyGame(gameId);
         gameNamespace.to(`game:${gameId}`).emit('game:gameOver', {
           winnerIndex: result.gameOver.winnerIndex,
-          stats: {},
+          stats: computeWireStats(game),
         });
         handleGameEnd(gameId, game, db);
         setTimeout(() => gameEngine.destroyGame(gameId), GAME_CLEANUP_DELAY_MS);

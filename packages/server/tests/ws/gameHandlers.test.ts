@@ -67,11 +67,16 @@ interface MockEmitter {
   emit: ReturnType<typeof vi.fn>;
 }
 
-function createMockNamespace() {
+function createMockNamespace(mockSockets: Array<ReturnType<typeof createMockSocket>> = []) {
   const roomEmitter: MockEmitter = { emit: vi.fn() };
+  const socketsMap = new Map<string, unknown>();
+  for (const s of mockSockets) {
+    socketsMap.set(s.id, s);
+  }
   const ns = {
     to: vi.fn().mockReturnValue(roomEmitter),
     emit: vi.fn(),
+    sockets: socketsMap,
     _roomEmitter: roomEmitter,
   };
   return ns;
@@ -79,8 +84,16 @@ function createMockNamespace() {
 
 function createMockSocket(data: { userId: string; userName: string; gameId?: string }) {
   const handlers = new Map<string, Function>();
+  const rooms = new Set<string>();
+  if (data.gameId) {
+    rooms.add(`game:${data.gameId}`);
+  }
+  const id = `mock-socket-${data.userId}`;
   const socket = {
+    id,
     data: { ...data },
+    rooms,
+    emit: vi.fn(),
     on: vi.fn((event: string, handler: Function) => {
       handlers.set(event, handler);
     }),
@@ -128,7 +141,7 @@ describe('Game Action WebSocket Handlers', () => {
   describe('game:attack', () => {
     it('executes a valid attack and broadcasts results', () => {
       const socket = createMockSocket({ userId: 'user-0', userName: 'Alice', gameId: roomId });
-      const ns = createMockNamespace();
+      const ns = createMockNamespace([socket]);
       setupGameActionHandlers(socket as never, ns as never, engine);
 
       const pair = findAttackPair(game, 0);
@@ -145,7 +158,7 @@ describe('Game Action WebSocket Handlers', () => {
       expect(ackArg.data.result.attackerRolls).toBeInstanceOf(Array);
       expect(ackArg.data.result.defenderRolls).toBeInstanceOf(Array);
 
-      // Should broadcast battleResult and stateUpdate
+      // Should broadcast battleResult to room
       expect(ns.to).toHaveBeenCalledWith(`game:${roomId}`);
       const emitCalls = ns._roomEmitter.emit.mock.calls;
       const battleResultEmit = emitCalls.find((c: unknown[]) => c[0] === 'game:battleResult');
@@ -153,8 +166,9 @@ describe('Game Action WebSocket Handlers', () => {
       expect(battleResultEmit[1].attackerTerritoryId).toBe(pair!.from);
       expect(battleResultEmit[1].defenderTerritoryId).toBe(pair!.to);
 
-      const stateUpdateEmit = emitCalls.find((c: unknown[]) => c[0] === 'game:stateUpdate');
-      expect(stateUpdateEmit).toBeDefined();
+      // State update is emitted per-socket
+      const stateEmit = socket.emit.mock.calls.find((c: unknown[]) => c[0] === 'game:stateUpdate');
+      expect(stateEmit).toBeDefined();
     });
 
     it('rejects attack when not in a game', () => {
@@ -231,7 +245,7 @@ describe('Game Action WebSocket Handlers', () => {
   describe('game:endTurn', () => {
     it('ends turn and broadcasts turn change', () => {
       const socket = createMockSocket({ userId: 'user-0', userName: 'Alice', gameId: roomId });
-      const ns = createMockNamespace();
+      const ns = createMockNamespace([socket]);
       setupGameActionHandlers(socket as never, ns as never, engine);
 
       const ack = vi.fn();
@@ -276,7 +290,7 @@ describe('Game Action WebSocket Handlers', () => {
 
     it('signals AI turn when next player is AI', () => {
       const socket = createMockSocket({ userId: 'user-0', userName: 'Alice', gameId: roomId });
-      const ns = createMockNamespace();
+      const ns = createMockNamespace([socket]);
       setupGameActionHandlers(socket as never, ns as never, engine);
 
       const ack = vi.fn();
@@ -295,7 +309,7 @@ describe('Game Action WebSocket Handlers', () => {
   describe('game:surrender', () => {
     it('surrenders and broadcasts state update', () => {
       const socket = createMockSocket({ userId: 'user-0', userName: 'Alice', gameId: roomId });
-      const ns = createMockNamespace();
+      const ns = createMockNamespace([socket]);
       setupGameActionHandlers(socket as never, ns as never, engine);
 
       const ack = vi.fn();
@@ -304,8 +318,8 @@ describe('Game Action WebSocket Handlers', () => {
       expect(ack).toHaveBeenCalledOnce();
       expect(ack.mock.calls[0][0].success).toBe(true);
 
-      const emitCalls = ns._roomEmitter.emit.mock.calls;
-      const stateUpdate = emitCalls.find((c: unknown[]) => c[0] === 'game:stateUpdate');
+      // State update is emitted per-socket
+      const stateUpdate = socket.emit.mock.calls.find((c: unknown[]) => c[0] === 'game:stateUpdate');
       expect(stateUpdate).toBeDefined();
     });
 
@@ -438,7 +452,7 @@ describe('Game Action WebSocket Handlers', () => {
       engine.createGame(roomId, config, makeSlots(4, 2));
 
       const socket = createMockSocket({ userId: 'user-0', userName: 'Alice', gameId: roomId });
-      const ns = createMockNamespace();
+      const ns = createMockNamespace([socket]);
       setupGameActionHandlers(socket as never, ns as never, engine);
 
       const ack = vi.fn();
@@ -446,8 +460,8 @@ describe('Game Action WebSocket Handlers', () => {
 
       expect(ack.mock.calls[0][0].success).toBe(true);
 
-      const emitCalls = ns._roomEmitter.emit.mock.calls;
-      const stateUpdate = emitCalls.find((c: unknown[]) => c[0] === 'game:stateUpdate');
+      // State update is emitted per-socket
+      const stateUpdate = socket.emit.mock.calls.find((c: unknown[]) => c[0] === 'game:stateUpdate');
       expect(stateUpdate).toBeDefined();
     });
 
@@ -532,17 +546,17 @@ describe('Game Action WebSocket Handlers', () => {
   describe('state serialization in broadcasts', () => {
     it('broadcasts valid WireGameState format', () => {
       const socket = createMockSocket({ userId: 'user-0', userName: 'Alice', gameId: roomId });
-      const ns = createMockNamespace();
+      const ns = createMockNamespace([socket]);
       setupGameActionHandlers(socket as never, ns as never, engine);
 
       const ack = vi.fn();
       getHandler(socket, 'game:endTurn')!(ack);
 
-      const emitCalls = ns._roomEmitter.emit.mock.calls;
-      const stateEmit = emitCalls.find((c: unknown[]) => c[0] === 'game:stateUpdate');
+      // State update is emitted per-socket
+      const stateEmit = socket.emit.mock.calls.find((c: unknown[]) => c[0] === 'game:stateUpdate');
       expect(stateEmit).toBeDefined();
 
-      const state = stateEmit[1];
+      const state = stateEmit![1];
       expect(state.territories).toBeInstanceOf(Array);
       expect(state.players).toBeInstanceOf(Array);
       expect(typeof state.currentPlayerIndex).toBe('number');
@@ -551,6 +565,7 @@ describe('Game Action WebSocket Handlers', () => {
       expect(state.alliances).toBeInstanceOf(Array);
       expect(state.powerUpLocations).toBeInstanceOf(Array);
       expect(typeof state.gameOver).toBe('boolean');
+      expect(typeof state.localPlayerIndex).toBe('number');
 
       // Verify territory wire format
       const t = state.territories[0];

@@ -3,6 +3,12 @@ import type { GameEngine } from '../services/GameEngine';
 import { serializeGameState } from './serializeState';
 import type { GameErrorCode } from '@dicewars/shared';
 import { decrementSpectators } from './spectatorHandlers';
+import { LobbyService } from '../services/LobbyService';
+import { getDb } from '../db/connection';
+import { gamePlayers } from '../db/schema';
+import { eq } from 'drizzle-orm';
+import { _getWaitingRooms } from './waitingRoom';
+import { lobbyBroadcaster } from './lobbyBroadcaster';
 
 // Track grace periods: `${gameId}:${userId}` → timer
 const gracePeriods = new Map<string, NodeJS.Timeout>();
@@ -28,7 +34,12 @@ export function setupDisconnectHandler(
     }
 
     const game = gameEngine.getGame(gameId);
-    if (!game || game.status !== 'playing') return;
+
+    // If no active game engine, this is a waiting room disconnect
+    if (!game || game.status !== 'playing') {
+      handleWaitingRoomDisconnect(socket, gameId, userId, gameNamespace);
+      return;
+    }
 
     const playerIndex = game.playerMap.get(userId);
     if (playerIndex === undefined) return;
@@ -122,6 +133,53 @@ export function setupReconnectHandler(
     const state = serializeGameState(game);
     ack({ success: true, data: state });
   });
+}
+
+/** Remove a player from a waiting room when their socket disconnects. */
+async function handleWaitingRoomDisconnect(
+  socket: Socket,
+  gameId: string,
+  userId: string,
+  gameNamespace: Namespace,
+): Promise<void> {
+  const db = getDb();
+
+  const playerRows = db
+    .select()
+    .from(gamePlayers)
+    .where(eq(gamePlayers.gameId, gameId))
+    .all();
+  const mySlot = playerRows.find((p) => p.userId === userId);
+  if (!mySlot) return;
+
+  console.log(
+    `[WaitingRoom] Player ${mySlot.slotIndex} (${socket.data.userName}) disconnected from waiting room ${gameId}`,
+  );
+
+  try {
+    const lobbyService = new LobbyService(db);
+    await lobbyService.leaveGame(gameId, userId);
+
+    // Clean up ephemeral ready state
+    const waitingRooms = _getWaitingRooms();
+    const room = waitingRooms.get(gameId);
+    if (room) {
+      room.readyPlayers.delete(userId);
+    }
+
+    // Notify remaining players
+    gameNamespace.to(`game:${gameId}`).emit('game:playerLeft', {
+      playerIndex: mySlot.slotIndex,
+    });
+
+    // Update lobby player count
+    const updatedGame = await lobbyService.getGame(gameId);
+    if (updatedGame) {
+      lobbyBroadcaster.broadcastPlayerCount(gameId, updatedGame.playerCount);
+    }
+  } catch (err) {
+    console.error(`[WaitingRoom] Failed to clean up disconnected player:`, err);
+  }
 }
 
 function convertToAI(

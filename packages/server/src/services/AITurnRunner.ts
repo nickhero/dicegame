@@ -18,6 +18,7 @@ import {
   breakAlliance,
   PERSONALITIES,
   type PersonalityType,
+  GameStats,
 } from '@dicewars/shared';
 
 const GAME_CLEANUP_DELAY_MS = 5 * 60 * 1000;
@@ -368,15 +369,15 @@ export class AITurnRunner {
   }
 
   private emitStateUpdate(gameId: string, game: ActiveGame): void {
-    if (game.config.fogOfWar && this.gameNamespace.sockets) {
-      for (const [, socket] of this.gameNamespace.sockets) {
-        if (socket.rooms.has(`game:${gameId}`) && socket.data.userId) {
-          const playerIndex = game.playerMap.get(socket.data.userId as string) ?? -1;
-          socket.emit('game:stateUpdate', filterStateForPlayer(game, playerIndex));
-        }
+    for (const [, socket] of this.gameNamespace.sockets) {
+      if (socket.rooms.has(`game:${gameId}`) && socket.data.userId) {
+        const playerIndex = game.playerMap.get(socket.data.userId as string) ?? -1;
+        const state = game.config.fogOfWar
+          ? filterStateForPlayer(game, playerIndex)
+          : serializeFullState(game);
+        state.localPlayerIndex = playerIndex;
+        socket.emit('game:stateUpdate', state);
       }
-    } else {
-      this.gameNamespace.to(`game:${gameId}`).emit('game:stateUpdate', serializeFullState(game));
     }
   }
 
@@ -400,9 +401,21 @@ export class AITurnRunner {
 
   private emitGameOver(gameId: string, winnerIndex: number): void {
     const game = this.gameEngine.getGame(gameId);
+    let stats: Record<string, unknown> = {};
+    if (game) {
+      try {
+        game.recorder.endCurrentTurn();
+        const recording = game.recorder.getRecording(
+          game.state.winner,
+          game.state.players[game.state.winner ?? -1]?.name ?? 'Unknown',
+        );
+        const summary = GameStats.computeFromRecording(recording);
+        stats = GameStats.serializeStats(summary);
+      } catch { /* fallback to empty stats */ }
+    }
     this.gameNamespace.to(`game:${gameId}`).emit('game:gameOver', {
       winnerIndex,
-      stats: {},
+      stats,
     });
     if (game && this.onGameEnd) {
       this.onGameEnd(gameId, game);
@@ -411,21 +424,15 @@ export class AITurnRunner {
   }
 
   private emitInstantBatch(gameId: string, game: ActiveGame, actions: AIActionPayload[]): void {
-    if (game.config.fogOfWar && this.gameNamespace.sockets) {
-      for (const [, socket] of this.gameNamespace.sockets) {
-        if (socket.rooms.has(`game:${gameId}`) && socket.data.userId) {
-          const playerIndex = game.playerMap.get(socket.data.userId as string) ?? -1;
-          socket.emit('game:instantBatch', {
-            actions,
-            finalState: filterStateForPlayer(game, playerIndex),
-          });
-        }
+    for (const [, socket] of this.gameNamespace.sockets) {
+      if (socket.rooms.has(`game:${gameId}`) && socket.data.userId) {
+        const playerIndex = game.playerMap.get(socket.data.userId as string) ?? -1;
+        const finalState = game.config.fogOfWar
+          ? filterStateForPlayer(game, playerIndex)
+          : serializeFullState(game);
+        finalState.localPlayerIndex = playerIndex;
+        socket.emit('game:instantBatch', { actions, finalState });
       }
-    } else {
-      this.gameNamespace.to(`game:${gameId}`).emit('game:instantBatch', {
-        actions,
-        finalState: serializeFullState(game),
-      });
     }
   }
 

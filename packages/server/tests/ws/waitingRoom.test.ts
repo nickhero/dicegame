@@ -152,9 +152,11 @@ describe('Waiting Room WebSocket', () => {
     });
 
     expect(result.success).toBe(true);
-    expect(result.data.game.id).toBe(game.id);
-    expect(result.data.game.name).toBe('Test Room');
-    expect(result.data.readyPlayers).toEqual([]);
+    expect(result.data.players).toBeInstanceOf(Array);
+    expect(result.data.maxPlayers).toBeGreaterThan(0);
+    // Creator should be in the players list
+    const creator = result.data.players.find((p: any) => p.name === 'Creator');
+    expect(creator).toBeDefined();
   });
 
   it('cannot join non-existent game', async () => {

@@ -40,7 +40,7 @@ export class GameOverScene extends Phaser.Scene {
     this.winnerName = data.winnerName || 'Unknown';
     this.isVictory = data.isVictory ?? false;
     this.spectatorMode = data.spectatorMode ?? false;
-    this.stats = data.stats ?? null;
+    this.stats = (data.stats && data.stats.perPlayer) ? data.stats : null;
     this.playerNames = data.playerNames ?? [];
     this.recording = data.recording ?? null;
     this.newAchievements = data.newAchievements ?? [];

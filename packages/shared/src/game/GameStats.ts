@@ -208,4 +208,45 @@ export class GameStats {
     stats.turnCount = recording.turnCount;
     return stats.getSummary();
   }
+
+  /** Convert GameStatsSummary to a JSON-safe wire format (Maps → plain objects). */
+  static serializeStats(summary: GameStatsSummary): Record<string, unknown> {
+    const perPlayer: Record<string, PlayerStats> = {};
+    for (const [k, v] of summary.perPlayer) {
+      perPlayer[String(k)] = v;
+    }
+    const territoriesOverTime: Record<string, number[]> = {};
+    for (const [k, v] of summary.territoriesOverTime) {
+      territoriesOverTime[String(k)] = v;
+    }
+    return {
+      turnCount: summary.turnCount,
+      totalBattles: summary.totalBattles,
+      perPlayer,
+      territoriesOverTime,
+      biggestUpset: summary.biggestUpset,
+    };
+  }
+
+  /** Reconstruct GameStatsSummary from wire format. */
+  static deserializeStats(wire: Record<string, unknown>): GameStatsSummary | null {
+    if (!wire || !wire.perPlayer || typeof wire.perPlayer !== 'object') return null;
+    const perPlayer = new Map<number, PlayerStats>();
+    for (const [k, v] of Object.entries(wire.perPlayer as Record<string, PlayerStats>)) {
+      perPlayer.set(Number(k), v);
+    }
+    const territoriesOverTime = new Map<number, number[]>();
+    if (wire.territoriesOverTime && typeof wire.territoriesOverTime === 'object') {
+      for (const [k, v] of Object.entries(wire.territoriesOverTime as Record<string, number[]>)) {
+        territoriesOverTime.set(Number(k), v);
+      }
+    }
+    return {
+      turnCount: (wire.turnCount as number) ?? 0,
+      totalBattles: (wire.totalBattles as number) ?? 0,
+      perPlayer,
+      territoriesOverTime,
+      biggestUpset: (wire.biggestUpset as GameStatsSummary['biggestUpset']) ?? null,
+    };
+  }
 }

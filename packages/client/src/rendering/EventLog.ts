@@ -21,7 +21,7 @@ export class EventLog {
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
-    this.container = scene.add.container(0, 0).setDepth(99);
+    this.container = scene.add.container(0, 0).setDepth(500);
 
     this.bg = scene.add.graphics();
     this.bg.fillStyle(0x111122, 0.8);

@@ -12,7 +12,7 @@ const encoder = new TextEncoder();
 
 const TWENTY_HOURS_SECS = 20 * 60 * 60;
 
-const guestRateLimit = rateLimit({ maxRequests: 10, windowMs: 60 * 60 * 1000 });
+const guestRateLimit = rateLimit({ maxRequests: 60, windowMs: 60 * 60 * 1000 });
 
 export function createAuthRoutes(db: AppDatabase) {
   const routes = new Hono<AppEnv>();

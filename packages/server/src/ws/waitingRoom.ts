@@ -21,6 +21,11 @@ export function _resetWaitingRooms() {
   waitingRooms.clear();
 }
 
+/** Exposed for disconnect handler to clean up ready state. */
+export function _getWaitingRooms() {
+  return waitingRooms;
+}
+
 export function setupWaitingRoomHandlers(
   socket: Socket,
   gameNamespace: Namespace,
@@ -58,20 +63,50 @@ export function setupWaitingRoomHandlers(
         .all();
 
       const mySlot = playerRows.find((p) => p.userId === socket.data.userId);
+      console.log(`[WaitingRoom] ${socket.data.userName} joined game:${gameId}, mySlot=${mySlot?.slotIndex}, totalPlayers=${playerRows.length}`);
 
       if (mySlot) {
         socket.to(`game:${gameId}`).emit('game:playerJoined', {
           playerIndex: mySlot.slotIndex,
           name: socket.data.userName,
           isAI: false,
+          userId: socket.data.userId,
         });
       }
+
+      // Build room player list for the waiting room
+      const readySet = waitingRooms.get(gameId)!.readyPlayers;
+      const config = typeof game.config === 'string' ? JSON.parse(game.config) : game.config;
+      const maxPlayers = config.playerCount ?? game.maxPlayers;
+
+      const roomPlayers = playerRows
+        .sort((a, b) => a.slotIndex - b.slotIndex)
+        .map((slot) => {
+          let name = `Player ${slot.slotIndex + 1}`;
+          if (slot.isAI) {
+            name = `AI ${slot.slotIndex + 1}`;
+          } else if (slot.userId === socket.data.userId) {
+            name = socket.data.userName ?? name;
+          } else if (slot.userId) {
+            const userRow = database.select().from(users).where(eq(users.id, slot.userId)).all();
+            name = userRow[0]?.displayName ?? name;
+          }
+          return {
+            index: slot.slotIndex,
+            name,
+            isAI: slot.isAI,
+            personality: slot.aiPersonality ?? undefined,
+            ready: slot.isAI || readySet.has(slot.userId ?? ''),
+            connected: !slot.isAI,
+            userId: slot.userId ?? undefined,
+          };
+        });
 
       ack({
         success: true,
         data: {
-          game,
-          readyPlayers: [...waitingRooms.get(gameId)!.readyPlayers],
+          players: roomPlayers,
+          maxPlayers,
         },
       });
     } catch {
@@ -85,6 +120,7 @@ export function setupWaitingRoomHandlers(
   // game:ready — Toggle ready state
   socket.on('game:ready', (ack) => {
     const gameId = socket.data.gameId;
+    console.log(`[WaitingRoom] ${socket.data.userName} toggled ready, gameId=${gameId}`);
     if (!gameId) {
       return ack({
         success: false,
@@ -169,9 +205,16 @@ export function setupWaitingRoomHandlers(
       };
 
       const activeGame = gameEngine.createGame(gameId, serverConfig, playerSlots);
-      const wireState = serializeFullState(activeGame);
 
-      gameNamespace.to(`game:${gameId}`).emit('game:stateUpdate', wireState);
+      // Send initial state per-socket so each client gets their localPlayerIndex
+      for (const [, sock] of gameNamespace.sockets) {
+        if (sock.rooms.has(`game:${gameId}`) && sock.data.userId) {
+          const playerIndex = activeGame.playerMap.get(sock.data.userId as string) ?? -1;
+          const wireState = serializeFullState(activeGame);
+          wireState.localPlayerIndex = playerIndex;
+          sock.emit('game:stateUpdate', wireState);
+        }
+      }
       lobbyBroadcaster.broadcastGameRemoved(gameId);
       waitingRooms.delete(gameId);
 

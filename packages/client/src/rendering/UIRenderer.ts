@@ -74,11 +74,11 @@ export class UIRenderer {
     this.undoBtn = this.createUndoButton(panelX, 325);
     this.container.add(this.undoBtn);
 
-    // Connection indicator (top-left corner)
+    // Connection indicator (below player panel)
     this.connectionDot = this.scene.add.graphics();
     this.container.add(this.connectionDot);
 
-    this.connectionLabel = this.scene.add.text(28, 12, '', {
+    this.connectionLabel = this.scene.add.text(GAME_WIDTH - 172, 315, '', {
       fontSize: '11px',
       color: '#aaaaaa',
       fontFamily: 'monospace',
@@ -196,7 +196,7 @@ export class UIRenderer {
 
     this.connectionDot.clear();
     this.connectionDot.fillStyle(hex, 1);
-    this.connectionDot.fillCircle(14, 18, 5);
+    this.connectionDot.fillCircle(GAME_WIDTH - 185, 321, 4);
 
     this.connectionLabel.setText(label).setColor(textColor);
   }

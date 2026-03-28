@@ -8,11 +8,15 @@ import {
   GAME_WIDTH, GAME_HEIGHT, PLAYER_COLORS, PLAYER_COLOR_STRINGS,
   MapShape,
 } from '@dicewars/shared';
+import type { AuthClient } from '../network/AuthClient';
+import { AuthExpiredError } from '../network/LobbyClient';
+import type { LobbyClient } from '../network/LobbyClient';
 
 type SpeedOption = GameSetupConfig['speed'];
-type PersonalityOption = PersonalityType | 'random' | 'custom';
+type PersonalityOption = PersonalityType | 'random' | 'custom' | 'open';
 
 const PERSONALITY_OPTIONS: PersonalityOption[] = [...ALL_PERSONALITY_TYPES, 'random', 'custom'];
+const MULTIPLAYER_PERSONALITY_OPTIONS: PersonalityOption[] = ['open', ...ALL_PERSONALITY_TYPES, 'random', 'custom'];
 
 const MAP_SIZE_LABELS: { label: string; key: keyof typeof TERRITORY_PRESETS }[] = [
   { label: 'S', key: 'small' },
@@ -68,9 +72,18 @@ export class SetupScene extends Phaser.Scene {
   private customAIConfigs: (CustomAIPreset | null)[] = [null, null, null, null, null];
   private customEditorContainer: Phaser.GameObjects.Container | null = null;
   private editingAIIndex = -1;
+  private multiplayer = false;
+  private authClient?: AuthClient;
+  private lobbyClient?: LobbyClient;
 
   constructor() {
     super('SetupScene');
+  }
+
+  init(data?: { multiplayer?: boolean; authClient?: AuthClient; lobbyClient?: LobbyClient }): void {
+    this.multiplayer = data?.multiplayer ?? false;
+    this.authClient = data?.authClient;
+    this.lobbyClient = data?.lobbyClient;
   }
 
   create(): void {
@@ -386,8 +399,15 @@ export class SetupScene extends Phaser.Scene {
       : this.config.playerCount - 1;
 
     // Ensure the aiPersonalities array has enough entries
+    const defaultPersonality = this.multiplayer ? 'open' : 'random';
     while (this.config.aiPersonalities.length < slotCount) {
-      this.config.aiPersonalities.push('random');
+      this.config.aiPersonalities.push(defaultPersonality as PersonalityType);
+    }
+    // In multiplayer, reset all slots to 'open' by default
+    if (this.multiplayer) {
+      for (let i = 0; i < slotCount; i++) {
+        this.config.aiPersonalities[i] = 'open' as PersonalityType;
+      }
     }
 
     for (let i = 0; i < slotCount; i++) {
@@ -398,7 +418,8 @@ export class SetupScene extends Phaser.Scene {
 
   private createAIRow(left: number, y: number, index: number): AIRow {
     const playerIdx = this.config.spectatorMode ? index : index + 1;
-    const label = this.add.text(left + 30, y, `AI ${index + 1}:`, {
+    const slotLabel = this.multiplayer ? `Slot ${playerIdx + 1}:` : `AI ${index + 1}:`;
+    const label = this.add.text(left + 30, y, slotLabel, {
       ...LABEL_STYLE,
       color: PLAYER_COLOR_STRINGS[playerIdx],
     });
@@ -446,8 +467,11 @@ export class SetupScene extends Phaser.Scene {
     this.aiContainer.add(gearBtn);
 
     // Set initial text
-    const current = this.config.aiPersonalities[index] ?? 'random';
-    if (current === 'custom') {
+    const current: string = this.config.aiPersonalities[index] ?? 'random';
+    if (current === 'open') {
+      personalityText.setText('👤 Open');
+      personalityText.setColor('#44ff88');
+    } else if (current === 'custom') {
       personalityText.setText(this.customAIConfigs[index]?.name ?? 'Custom ⚙');
       gearBtn.setVisible(true);
     } else {
@@ -459,13 +483,18 @@ export class SetupScene extends Phaser.Scene {
   }
 
   private cyclePersonality(index: number, direction: number): void {
-    const current = this.config.aiPersonalities[index] ?? 'random';
-    const currentIdx = PERSONALITY_OPTIONS.indexOf(current as PersonalityOption);
-    const nextIdx = (currentIdx + direction + PERSONALITY_OPTIONS.length) % PERSONALITY_OPTIONS.length;
-    const next = PERSONALITY_OPTIONS[nextIdx];
-    this.config.aiPersonalities[index] = next;
+    const options = this.multiplayer ? MULTIPLAYER_PERSONALITY_OPTIONS : PERSONALITY_OPTIONS;
+    const current = this.config.aiPersonalities[index] ?? (this.multiplayer ? 'open' : 'random');
+    const currentIdx = options.indexOf(current as PersonalityOption);
+    const nextIdx = (currentIdx + direction + options.length) % options.length;
+    const next = options[nextIdx];
+    this.config.aiPersonalities[index] = next as PersonalityType;
 
-    if (next === 'custom') {
+    if (next === 'open') {
+      this.aiRows[index].personalityText.setText('👤 Open');
+      this.aiRows[index].personalityText.setColor('#44ff88');
+      this.aiRows[index].gearBtn.setVisible(false);
+    } else if (next === 'custom') {
       // Ensure a default custom config exists for this slot
       if (!this.customAIConfigs[index]) {
         this.customAIConfigs[index] = { name: 'Custom', minAdvantage: 1, maxAttacksPerTurn: Infinity, connectivityBonus: 0 };
@@ -477,6 +506,7 @@ export class SetupScene extends Phaser.Scene {
     } else {
       const displayName = next === 'random' ? 'Random' : next.charAt(0).toUpperCase() + next.slice(1);
       this.aiRows[index].personalityText.setText(displayName);
+      this.aiRows[index].personalityText.setColor('#88aadd');
       this.aiRows[index].gearBtn.setVisible(false);
       this.customAIConfigs[index] = null;
     }
@@ -846,7 +876,58 @@ export class SetupScene extends Phaser.Scene {
       prefsToSave.mapSeed = null;
     }
     savePreferences(prefsToSave);
-    this.scene.start('GameScene', this.config);
+
+    if (this.multiplayer && this.lobbyClient && this.authClient) {
+      this.startOnlineGame();
+    } else {
+      this.scene.start('GameScene', this.config);
+    }
+  }
+
+  private async startOnlineGame(): Promise<void> {
+    try {
+      // Build aiSlots with proper slot indices (slot 0 = creator)
+      const aiSlots: Array<{ slot: number; personality: string }> = [];
+      for (let i = 0; i < this.config.aiPersonalities.length; i++) {
+        const p = this.config.aiPersonalities[i];
+        if (p && p !== ('open' as PersonalityType)) {
+          aiSlots.push({ slot: i + 1, personality: p });
+        }
+      }
+
+      const game = await this.lobbyClient!.createGame({
+        name: `Game ${Date.now().toString(36).slice(-4)}`,
+        maxPlayers: this.config.playerCount,
+        aiSlots,
+        config: {
+          playerCount: this.config.playerCount,
+          territoryCount: this.config.territoryCount,
+          mapShape: this.config.mapShape ?? 'rectangle',
+          gridType: 'square',
+          speed: this.config.speed ?? 'normal',
+          powerUps: this.config.powerUps ?? false,
+          fogOfWar: this.config.fogOfWar ?? false,
+          alliances: false,
+        },
+      });
+
+      this.scene.start('WaitingRoomScene', {
+        gameId: game.id,
+        authClient: this.authClient!,
+        lobbyClient: this.lobbyClient!,
+        gameName: game.name,
+        isCreator: true,
+        maxPlayers: this.config.playerCount,
+      });
+    } catch (err) {
+      console.error('Failed to create online game:', err);
+      if (err instanceof AuthExpiredError) {
+        this.authClient?.logout();
+        this.scene.start('LoginScene');
+      } else {
+        this.scene.start('LobbyScene', { authClient: this.authClient, lobbyClient: this.lobbyClient });
+      }
+    }
   }
 }
 

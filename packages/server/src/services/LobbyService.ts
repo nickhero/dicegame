@@ -369,17 +369,18 @@ export class LobbyService {
 
   async cleanupStaleRooms(maxAgeMinutes = 10): Promise<string[]> {
     const cutoff = new Date(Date.now() - maxAgeMinutes * 60 * 1000).toISOString();
+    // Hard cutoff: abandon any waiting game older than 30 minutes regardless of player count
+    const hardCutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+
     const staleRooms = this.db
       .select()
       .from(gameRooms)
-      .where(
-        and(
-          eq(gameRooms.status, 'waiting'),
-          eq(gameRooms.currentPlayerCount, 0),
-        ),
-      )
+      .where(eq(gameRooms.status, 'waiting'))
       .all()
-      .filter((room) => room.createdAt < cutoff);
+      .filter((room) =>
+        (room.currentPlayerCount === 0 && room.createdAt < cutoff) ||
+        room.createdAt < hardCutoff,
+      );
 
     const removedIds: string[] = [];
     for (const room of staleRooms) {

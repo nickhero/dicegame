@@ -3,19 +3,25 @@ import type { SocketClient } from './SocketClient';
 
 const DEFAULT_SERVER_URL = 'http://localhost:3001';
 
+export class AuthExpiredError extends Error {
+  constructor() { super('Session expired, please log in again'); }
+}
+
 export interface CreateGameRequest {
   name: string;
   maxPlayers: number;
   password?: string;
+  aiSlots?: Array<{ slot: number; personality: string }>;
   config: {
+    playerCount: number;
     mapShape: string;
     gridType: string;
     territoryCount: number;
+    speed: string;
     powerUps: boolean;
     fogOfWar: boolean;
     alliances: boolean;
     seed?: string;
-    aiSlots?: Array<{ personality: string }>;
   };
 }
 
@@ -49,6 +55,7 @@ export class LobbyClient {
     const res = await fetch(`${this.serverUrl}/api/games`, {
       headers: this.headers,
     });
+    if (res.status === 401) throw new AuthExpiredError();
     if (!res.ok) throw new Error('Failed to fetch games');
     return res.json();
   }
@@ -67,6 +74,7 @@ export class LobbyClient {
       headers: this.headers,
       body: JSON.stringify(request),
     });
+    if (res.status === 401) throw new AuthExpiredError();
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.error?.message || 'Failed to create game');

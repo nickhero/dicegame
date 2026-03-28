@@ -80,6 +80,7 @@ export class GameScene extends Phaser.Scene {
   private disconnectTimer: Phaser.Time.TimerEvent | null = null;
   private connectionCleanup: (() => void) | null = null;
   private localPlayerIndex: number | undefined;
+  private onlineGameOverStats: Record<string, unknown> | null = null;
 
   constructor() {
     super('GameScene');
@@ -116,6 +117,9 @@ export class GameScene extends Phaser.Scene {
     // If server sent initial state, deserialize it
     if (data?.initialState) {
       this.gameState = deserializeWireState(data.initialState);
+      if (data.initialState.localPlayerIndex !== undefined) {
+        this.localPlayerIndex = data.initialState.localPlayerIndex;
+      }
     }
   }
 
@@ -228,8 +232,11 @@ export class GameScene extends Phaser.Scene {
     }
     if (this.isOnlineGame) {
       this.uiRenderer.setProposeAllianceCallback((targetIndex) => this.proposeAllianceToPlayer(targetIndex));
-      // Determine local player index from state
-      this.localPlayerIndex = this.gameState.players.findIndex((p) => p.isHuman);
+      // localPlayerIndex already set from initialState in init()
+      // Fallback: guess from first human player
+      if (this.localPlayerIndex === undefined) {
+        this.localPlayerIndex = this.gameState.players.findIndex((p) => p.isHuman);
+      }
     }
     if (this.spectatorMode) {
       this.uiRenderer.setSpectatorMode(true);
@@ -282,7 +289,12 @@ export class GameScene extends Phaser.Scene {
       this.setupSocketListeners();
       this.setupConnectionStateListener();
       this.uiRenderer.setConnectionState(this.socketClient!.state);
-      this.uiRenderer.setStatus('Connected — waiting for game to start');
+      this.updateOnlineStatus();
+      this.eventLog.addEvent('🌐 Online game started', 0x44cc44);
+      this.eventLog.addEvent(
+        `Turn ${this.gameState.turnNumber} — ${this.gameState.players[this.gameState.currentPlayerIndex]?.name ?? 'Unknown'}'s turn`,
+        0xffffff
+      );
       return;
     }
 
@@ -308,7 +320,20 @@ export class GameScene extends Phaser.Scene {
     if (!this.socketClient) return;
 
     this.socketClient.on('game:stateUpdate', (wireState: WireGameState) => {
+      const prevTurn = this.gameState.turnNumber;
       this.gameState = deserializeWireState(wireState);
+      if (wireState.localPlayerIndex !== undefined) {
+        this.localPlayerIndex = wireState.localPlayerIndex;
+      }
+      // Log turn changes
+      if (this.gameState.turnNumber !== prevTurn) {
+        const currentPlayer = this.gameState.players[this.gameState.currentPlayerIndex];
+        this.eventLog.addEvent(
+          `🔄 Turn ${this.gameState.turnNumber} — ${currentPlayer?.name ?? 'Unknown'}'s turn`,
+          PLAYER_COLORS[this.gameState.currentPlayerIndex] ?? 0xffffff
+        );
+      }
+      this.updateOnlineStatus();
       this.refreshDisplay();
     });
 
@@ -318,6 +343,13 @@ export class GameScene extends Phaser.Scene {
       if (attackerTerritory && defenderTerritory) {
         const attackerColor = PLAYER_COLORS[result.attackerPlayerIndex] ?? 0xffffff;
         const defenderColor = PLAYER_COLORS[result.defenderPlayerIndex] ?? 0xffffff;
+        const attackerName = this.gameState.players[result.attackerPlayerIndex]?.name ?? '?';
+        const defenderName = this.gameState.players[result.defenderPlayerIndex]?.name ?? '?';
+        const outcome = result.attackerWins ? 'won' : 'lost';
+        this.eventLog.addEvent(
+          `⚔️ ${attackerName} → ${defenderName} [${result.attackerDice.length}v${result.defenderDice.length}] ${outcome}`,
+          attackerColor
+        );
 
         this.territoryEffects.showAttackLine(
           attackerTerritory.center.x, attackerTerritory.center.y,
@@ -396,11 +428,15 @@ export class GameScene extends Phaser.Scene {
         const name = player?.name ?? `Player ${action.playerIndex}`;
         this.eventLog.addEvent(`⚡ ${name}: ${action.actionType}`, player?.color ?? 0xffffff);
       }
+      if (batch.finalState.localPlayerIndex !== undefined) {
+        this.localPlayerIndex = batch.finalState.localPlayerIndex;
+      }
       this.gameState = deserializeWireState(batch.finalState);
       this.refreshDisplay();
     });
 
-    this.socketClient.on('game:gameOver', (_data: GameOverPayload) => {
+    this.socketClient.on('game:gameOver', (data: GameOverPayload) => {
+      this.onlineGameOverStats = data.stats as Record<string, unknown>;
       this.handleGameOver();
     });
 
@@ -486,6 +522,8 @@ export class GameScene extends Phaser.Scene {
 
     const currentPlayer = this.gameState.players[this.gameState.currentPlayerIndex];
     if (!currentPlayer.isHuman) return;
+    if (this.isOnlineGame && this.localPlayerIndex !== undefined
+      && this.gameState.currentPlayerIndex !== this.localPlayerIndex) return;
 
     // Z — undo last attack
     if (key === 'Z' && this.undoEnabled) {
@@ -677,6 +715,8 @@ export class GameScene extends Phaser.Scene {
     if (this.gameState.phase === 'gameOver') return;
     const currentPlayer = this.gameState.players[this.gameState.currentPlayerIndex];
     if (!currentPlayer.isHuman) return;
+    if (this.isOnlineGame && this.localPlayerIndex !== undefined
+      && this.gameState.currentPlayerIndex !== this.localPlayerIndex) return;
 
     this.isDialogOpen = true;
     const cx = GAME_WIDTH / 2;
@@ -742,6 +782,9 @@ export class GameScene extends Phaser.Scene {
 
     const currentPlayer = this.gameState.players[this.gameState.currentPlayerIndex];
     if (!currentPlayer.isHuman) return;
+    // In online games, only allow interaction on our own turn
+    if (this.isOnlineGame && this.localPlayerIndex !== undefined
+      && this.gameState.currentPlayerIndex !== this.localPlayerIndex) return;
 
     // Fortify mode: selecting target territory
     if (this.fortifyMode) {
@@ -992,6 +1035,19 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  private updateOnlineStatus(): void {
+    if (!this.isOnlineGame) return;
+    const isMyTurn = this.localPlayerIndex !== undefined &&
+      this.gameState.currentPlayerIndex === this.localPlayerIndex;
+    if (isMyTurn) {
+      this.uiRenderer.setStatus('Your turn — select a territory to attack');
+    } else {
+      const current = this.gameState.players[this.gameState.currentPlayerIndex];
+      const name = current?.name ?? 'Opponent';
+      this.uiRenderer.setStatus(`${name}'s turn — waiting...`);
+    }
+  }
+
   private showDisconnectOverlay(): void {
     if (this.disconnectOverlay) return;
 
@@ -1126,7 +1182,10 @@ export class GameScene extends Phaser.Scene {
   private getBattleSpeed(baseSpeed: number): number {
     const multiplier = SPEED_CONFIGS[this.speed].multiplier;
     if (multiplier === 0) return 0;
-    return baseSpeed / multiplier;
+    const speed = baseSpeed / multiplier;
+    // Cap battle speed so animations remain readable (max 1.5x in online)
+    if (this.isOnlineGame && speed > 1.5) return 1.5;
+    return speed;
   }
 
   private setSpeed(newSpeed: GameSetupConfig['speed']): void {
@@ -1166,12 +1225,18 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (this.isOnlineGame) {
-      // Online: server manages recording, just show results
+      // Online: deserialize stats from server
+      const stats = this.onlineGameOverStats
+        ? GameStats.deserializeStats(this.onlineGameOverStats)
+        : null;
+      // Determine victory relative to local player
+      const isVictory = this.localPlayerIndex !== undefined &&
+        winner?.id === this.localPlayerIndex;
       this.scene.start('GameOverScene', {
         winnerName: winner?.name ?? 'Unknown',
-        isVictory: winner?.isHuman ?? false,
+        isVictory,
         spectatorMode: this.spectatorMode,
-        stats: {},
+        stats: stats ?? undefined,
         playerNames: this.gameState.players.map((p) => p.name),
         newAchievements: [],
       });

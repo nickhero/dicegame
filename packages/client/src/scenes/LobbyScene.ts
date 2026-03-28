@@ -4,7 +4,7 @@ import {
   type GameRoomSummary,
 } from '@dicewars/shared';
 import { AuthClient } from '../network/AuthClient';
-import { LobbyClient } from '../network/LobbyClient';
+import { LobbyClient, AuthExpiredError } from '../network/LobbyClient';
 
 const ROW_HEIGHT = 45;
 const LIST_TOP = 130;
@@ -226,7 +226,12 @@ export class LobbyScene extends Phaser.Scene {
     try {
       this.games = await this.lobbyClient.getGames();
       this.renderGameList();
-    } catch {
+    } catch (err) {
+      if (err instanceof AuthExpiredError) {
+        this.authClient.logout();
+        this.scene.start('LoginScene');
+        return;
+      }
       this.statusText.setText('Failed to load games').setColor('#e94560');
     }
   }

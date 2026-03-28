@@ -48,6 +48,8 @@ export interface WireGameState {
   gameOver: boolean;
   winner: number | null;
   turnTimerRemaining: number | null;
+  /** Set per-socket so each client knows which player they control */
+  localPlayerIndex?: number;
 }
 
 // Server timing config for AI delays
@@ -187,6 +189,7 @@ export interface ServerToClientEvents {
     playerIndex: number;
     name: string;
     isAI: boolean;
+    userId?: string;
   }) => void;
   'game:playerLeft': (data: { playerIndex: number }) => void;
   'game:gameOver': (data: GameOverPayload) => void;

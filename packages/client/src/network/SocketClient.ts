@@ -67,13 +67,15 @@ export class SocketClient {
       });
 
       this.socket.on('connect_error', (err) => {
+        console.error('[WS] connect_error', err.message);
         if (this._state === 'connecting') {
           this.setState('disconnected');
           reject(err);
         }
       });
 
-      this.socket.on('disconnect', () => {
+      this.socket.on('disconnect', (reason) => {
+        console.log('[WS] disconnected:', reason);
         this.setState('disconnected');
       });
     });
@@ -141,7 +143,7 @@ export class SocketClient {
     } as AllianceResponseIntent);
   }
 
-  joinGame(gameId: string): Promise<SocketAck<WireGameState>> {
+  joinGame(gameId: string): Promise<SocketAck> {
     return this.emitWithAck('game:join', { gameId });
   }
 
@@ -151,6 +153,10 @@ export class SocketClient {
 
   ready(): Promise<SocketAck> {
     return this.emitWithAckNoData('game:ready');
+  }
+
+  startGame(gameId: string): Promise<SocketAck> {
+    return this.emitWithAck('game:start', { gameId });
   }
 
   reconnectGame(gameId: string): Promise<SocketAck<WireGameState>> {
