@@ -171,6 +171,10 @@ export class WaitingRoomScene extends Phaser.Scene {
   }
 
   shutdown(): void {
+    this.removeSocketListeners();
+  }
+
+  private removeSocketListeners(): void {
     if (this.socketClient) {
       this.socketClient.off('game:playerJoined', this.playerJoinedHandler);
       this.socketClient.off('game:playerLeft', this.playerLeftHandler);
@@ -242,7 +246,11 @@ export class WaitingRoomScene extends Phaser.Scene {
     };
 
     this.stateUpdateHandler = (state: WireGameState) => {
-      // Game has started — transition to GameScene
+      // Remove all waiting room handlers BEFORE transitioning —
+      // Phaser's shutdown() may fire too late if scene.start() is deferred,
+      // causing this handler to restart GameScene on every subsequent stateUpdate.
+      this.removeSocketListeners();
+
       this.scene.start('GameScene', {
         gameId: this.gameId,
         authClient: this.authClient,

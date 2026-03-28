@@ -351,7 +351,7 @@ export class AITurnRunner {
   private getMaxAttacks(game: ActiveGame, playerIndex: number): number {
     const player = game.state.players[playerIndex];
     const personalityType: PersonalityType = (player.personality ?? 'balanced') as PersonalityType;
-    const personality = player.customPersonalityConfig ?? PERSONALITIES[personalityType];
+    const personality = player.customPersonalityConfig ?? PERSONALITIES[personalityType] ?? PERSONALITIES.balanced;
     return Math.min(personality.maxAttacksPerTurn, MAX_ATTACKS_HARD_CAP);
   }
 

@@ -105,7 +105,9 @@ export class TurnTimer {
 
       // Trigger AI turn if next player is AI
       if (game.aiPlayerIndices.has(result.nextPlayerIndex) && this.aiTurnRunner) {
-        this.aiTurnRunner.runAITurns(gameId);
+        this.aiTurnRunner.runAITurns(gameId).catch((err) => {
+          console.error(`[AI] runAITurns failed for ${gameId}:`, err);
+        });
       }
     } catch (err) {
       console.error(`[Timer] Auto end turn failed for ${gameId}:`, err);

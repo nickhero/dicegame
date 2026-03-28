@@ -226,7 +226,7 @@ export class UIRenderer {
       let name: string;
       if (p.isHuman) {
         name = `${p.name} (You)`;
-      } else if (p.personality) {
+      } else if (p.personality && PERSONALITIES[p.personality]) {
         const label = PERSONALITIES[p.personality].label;
         name = `${p.name} (${label})`;
       } else {

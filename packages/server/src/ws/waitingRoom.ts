@@ -7,7 +7,7 @@ import { serializeFullState } from '../services/FogFilter';
 import { getDb, type AppDatabase } from '../db/connection';
 import { gamePlayers, gameRooms, users } from '../db/schema';
 import { lobbyBroadcaster } from './lobbyBroadcaster';
-import { PLAYER_COLORS, GameErrorCode } from '@dicewars/shared';
+import { PLAYER_COLORS, GameErrorCode, ALL_PERSONALITY_TYPES } from '@dicewars/shared';
 import type { AITurnRunner } from '../services/AITurnRunner';
 
 interface WaitingRoomState {
@@ -222,11 +222,15 @@ export function setupWaitingRoomHandlers(
       if (activeGame.aiPlayerIndices.size === activeGame.state.players.length) {
         socket.data.isSpectator = true;
         if (aiTurnRunner) {
-          aiTurnRunner.runAITurns(gameId);
+          aiTurnRunner.runAITurns(gameId).catch((err) => {
+            console.error(`[AI] runAITurns failed for ${gameId}:`, err);
+          });
         }
       } else if (aiTurnRunner && activeGame.aiPlayerIndices.has(activeGame.state.currentPlayerIndex)) {
         // If first player is AI, start AI turns
-        aiTurnRunner.runAITurns(gameId);
+        aiTurnRunner.runAITurns(gameId).catch((err) => {
+          console.error(`[AI] runAITurns failed for ${gameId}:`, err);
+        });
       }
 
       ack({ success: true });
@@ -353,6 +357,10 @@ export function setupWaitingRoomHandlers(
 
         const id = nanoid();
         const now = new Date().toISOString();
+        // Always randomize AI personality for online games
+        const randomPersonality = ALL_PERSONALITY_TYPES[
+          Math.floor(Math.random() * ALL_PERSONALITY_TYPES.length)
+        ];
         database
           .insert(gamePlayers)
           .values({
@@ -361,7 +369,7 @@ export function setupWaitingRoomHandlers(
             userId: null,
             slotIndex,
             isAI: true,
-            aiPersonality: personality,
+            aiPersonality: randomPersonality,
             isSpectator: false,
             joinedAt: now,
           })

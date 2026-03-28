@@ -16,7 +16,7 @@ type SpeedOption = GameSetupConfig['speed'];
 type PersonalityOption = PersonalityType | 'random' | 'custom' | 'open';
 
 const PERSONALITY_OPTIONS: PersonalityOption[] = [...ALL_PERSONALITY_TYPES, 'random', 'custom'];
-const MULTIPLAYER_PERSONALITY_OPTIONS: PersonalityOption[] = ['open', ...ALL_PERSONALITY_TYPES, 'random', 'custom'];
+const MULTIPLAYER_PERSONALITY_OPTIONS: PersonalityOption[] = ['open', 'random'];
 
 const MAP_SIZE_LABELS: { label: string; key: keyof typeof TERRITORY_PRESETS }[] = [
   { label: 'S', key: 'small' },
@@ -447,7 +447,7 @@ export class SetupScene extends Phaser.Scene {
     }).setOrigin(0.5, 0);
     this.aiContainer.add(personalityText);
 
-    // Left arrow
+    // Left arrow (hidden for multiplayer — only Open/AI toggle)
     const leftArrow = this.add.text(left + 155, y, '◄', {
       fontSize: '18px',
       color: '#88aadd',
@@ -458,7 +458,7 @@ export class SetupScene extends Phaser.Scene {
     leftArrow.on('pointerout', () => leftArrow.setColor('#88aadd'));
     this.aiContainer.add(leftArrow);
 
-    // Right arrow
+    // Right arrow (hidden for multiplayer)
     const rightArrow = this.add.text(left + 320, y, '►', {
       fontSize: '18px',
       color: '#88aadd',
@@ -469,7 +469,7 @@ export class SetupScene extends Phaser.Scene {
     rightArrow.on('pointerout', () => rightArrow.setColor('#88aadd'));
     this.aiContainer.add(rightArrow);
 
-    // Gear button for custom editing
+    // Gear button for custom editing (never shown for multiplayer)
     const gearBtn = this.add.text(left + 350, y, '⚙', {
       fontSize: '16px',
       color: '#88aadd',
@@ -485,6 +485,10 @@ export class SetupScene extends Phaser.Scene {
     if (current === 'open') {
       personalityText.setText('👤 Open');
       personalityText.setColor('#44ff88');
+    } else if (this.multiplayer) {
+      // Multiplayer: just show "AI" — server picks random personality
+      personalityText.setText('🤖 AI');
+      personalityText.setColor('#d9d94a');
     } else if (current === 'custom') {
       personalityText.setText(this.customAIConfigs[index]?.name ?? 'Custom ⚙');
       gearBtn.setVisible(true);
@@ -507,6 +511,11 @@ export class SetupScene extends Phaser.Scene {
     if (next === 'open') {
       this.aiRows[index].personalityText.setText('👤 Open');
       this.aiRows[index].personalityText.setColor('#44ff88');
+      this.aiRows[index].gearBtn.setVisible(false);
+    } else if (this.multiplayer) {
+      // Multiplayer: just "AI" — server picks random personality
+      this.aiRows[index].personalityText.setText('🤖 AI');
+      this.aiRows[index].personalityText.setColor('#d9d94a');
       this.aiRows[index].gearBtn.setVisible(false);
     } else if (next === 'custom') {
       // Ensure a default custom config exists for this slot

@@ -170,7 +170,9 @@ export function setupGameActionHandlers(
 
       // Trigger AI turns if next player is AI
       if (aiTurnRunner && game.aiPlayerIndices.has(result.nextPlayerIndex)) {
-        aiTurnRunner.runAITurns(gameId);
+        aiTurnRunner.runAITurns(gameId).catch((err) => {
+          console.error(`[AI] runAITurns failed for ${gameId}:`, err);
+        });
       }
 
       ack({ success: true, data: result });

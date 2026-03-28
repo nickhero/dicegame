@@ -167,7 +167,7 @@ function getPersonality(state: GameState): AIPersonality {
     return player.customPersonalityConfig;
   }
   const type: PersonalityType = player.personality ?? 'balanced';
-  return PERSONALITIES[type];
+  return PERSONALITIES[type] ?? PERSONALITIES.balanced;
 }
 
 /**

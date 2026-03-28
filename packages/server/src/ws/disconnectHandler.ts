@@ -212,7 +212,9 @@ function convertToAI(
 
   // If it's this player's turn, trigger AI turn directly
   if (game.state.currentPlayerIndex === playerIndex && aiTurnRunner) {
-    aiTurnRunner.runAITurns(gameId);
+    aiTurnRunner.runAITurns(gameId).catch((err) => {
+      console.error(`[AI] runAITurns failed for ${gameId}:`, err);
+    });
   }
 }
 
