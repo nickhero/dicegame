@@ -2,27 +2,43 @@
 
 A browser-based territory strategy game inspired by [DiceWars](http://www.gamedesign.jp/flash/dice/dice.html) and [KDice](https://kdice.com). Conquer the map by rolling dice against your opponents!
 
-Built with Phaser 3, TypeScript, and pixel art — all generated programmatically, no external assets needed.
+Built as a monorepo with a **server-authoritative multiplayer backend** — Phaser 3 + TypeScript + Hono + Socket.IO. All graphics are procedural pixel art, no external assets needed.
 
 ![Game Type](https://img.shields.io/badge/genre-strategy-blue)
 ![Tech](https://img.shields.io/badge/stack-Phaser_3_+_TypeScript-green)
+![Version](https://img.shields.io/badge/version-2.0.0-orange)
 
 ## ✨ Features
 
-- **2–6 player** territory strategy (1 human + AI opponents)
+### Core Gameplay
+- **2–6 player** territory strategy — local or online multiplayer
+- **Server-authoritative** — Hono backend validates all moves, clients send intents via Socket.IO
 - **6 AI personalities** — Cautious, Balanced, Aggressive, Reckless, Expansionist, Turtle
-- **Configurable setup** — Player count, map size (S/M/L/XL), map shapes (rectangle, diamond, ring, continent, islands), fog of war, power-ups, spectator mode
+- **Seeded RNG** for deterministic, reproducible games
+
+### Configuration
+- Player count, map size (S/M/L/XL), map shapes (rectangle, diamond, ring, continent, islands)
+- Square or hex grid types
+- Fog of war, power-ups, alliances — all toggleable
+
+### Tactical Features
 - **Power-ups** — Shield (block attack), Charge (+2 attack), Fortify (+2 defense), Reinforce (+3 dice)
 - **Fog of war** — Only see territories adjacent to your own
-- **Alliances & diplomacy** — Non-aggression pacts, reputation tracking, AI proposal/acceptance/breaking logic
+- **Alliances & diplomacy** — Non-aggression pacts, reputation tracking, betrayal mechanics
+- **Undo attack** (once per turn, local games only)
+
+### Online Multiplayer
+- Guest login, game lobby, waiting rooms
+- AI opponents with randomized personalities
+- Turn timers, disconnect handling with AI takeover, reconnection
+- Player stats and match history persistence
+
+### Extras
 - **12 achievements** tracked across games
 - **Match history** with full game replay and playback controls
-- **Undo attack** (once per turn)
-- **AI surrender** with personality-based logic
-- **Spectator mode** — All-AI games with pause/resume
-- **Procedural audio** — Web Audio sound effects (dice roll, capture, attack fail, elimination, victory, and more)
+- **Spectator mode** — All-AI local games with pause/resume
+- **Procedural audio** — Web Audio sound effects
 - **Post-game stats** with territory-over-time chart
-- **Seeded RNG** for deterministic, reproducible games
 
 ## 🎮 How to Play
 
@@ -68,75 +84,55 @@ Built with Phaser 3, TypeScript, and pixel art — all generated programmaticall
 
 ```bash
 npm install
-npm run dev
+npm run dev          # Client dev server on :3000
+npm run dev:server   # Backend server on :3001
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+Open [http://localhost:3000](http://localhost:3000) in your browser. For online multiplayer, both client and server must be running.
 
 ### Other Commands
 
 ```bash
-npm run test       # Run all unit tests
-npm run build      # Type-check + production build (outputs to dist/)
-npm run typecheck  # Type-check only (no emit)
+npm run test         # Run shared package tests (478+)
+npm run test:server  # Run server tests including E2E (300+)
+npm run test:all     # Run all tests (780+)
+npm run build        # Build shared + client for production
+npm run typecheck    # Type-check all packages (tsc --build)
 ```
 
 ## 🏗️ Project Structure
 
+This is a **monorepo** (npm workspaces) with three packages:
+
 ```
-src/
-├── game/              ← Pure game logic (no Phaser dependency) — 20 files
-│   ├── constants.ts       # Colors, limits, dimensions
-│   ├── Territory.ts       # Territory data model
-│   ├── Player.ts          # Player data model + factory
-│   ├── GameState.ts       # Central game state + BattleResult
-│   ├── MapGenerator.ts    # Grid-based region growing (square + hex)
-│   ├── MapShapes.ts       # Map shape masks (rectangle, diamond, ring, etc.)
-│   ├── DiceBattle.ts      # Dice rolling & battle resolution
-│   ├── GameRules.ts       # Attack rules, turn flow, dice distribution
-│   ├── AIPlayer.ts        # AI opponent logic with personality system
-│   ├── AIPersonality.ts   # 6 AI personality type definitions
-│   ├── GameConfig.ts      # Game setup config, localStorage persistence
-│   ├── GameRecorder.ts    # Action recording for replay & stats
-│   ├── GameStats.ts       # Live stats + historical computation
-│   ├── GameStateSnapshot.ts # Snapshot/restore for undo
-│   ├── EventFormatter.ts  # GameAction → display text conversion
-│   ├── MatchHistory.ts    # Match history localStorage persistence
-│   ├── PowerUps.ts        # Power-up types, spawning, effects
-│   ├── FogOfWar.ts        # Visibility computation
-│   ├── Alliance.ts        # Alliance system, reputation, AI diplomacy
-│   └── Achievements.ts    # 12 achievements with check functions
-├── rendering/         ← Phaser rendering (stateless, reads GameState)
-│   ├── MapRenderer.ts     # Territory map + alliance indicators
-│   ├── DiceRenderer.ts    # Pixel art dice generation & stacks
-│   ├── UIRenderer.ts      # HUD, player panel, buttons
-│   ├── BattleAnimator.ts  # Battle popup animations
-│   ├── TerritoryEffects.ts # Visual effects (arrows, glow, pulse)
-│   ├── EventLog.ts        # Scrollable event log panel
-│   └── SoundManager.ts    # Procedural Web Audio sound effects
-├── scenes/            ← Phaser scene lifecycle
-│   ├── BootScene.ts       # Loading screen
-│   ├── MenuScene.ts       # Title, start, history, achievements
-│   ├── SetupScene.ts      # Game configuration UI
-│   ├── GameScene.ts       # Main gameplay
-│   ├── GameOverScene.ts   # Victory/defeat + stats + achievements
-│   ├── ReplayScene.ts     # Game replay playback
-│   └── HistoryScene.ts    # Match history browser
-├── utils/             ← Pure utilities
-│   ├── random.ts          # Seeded RNG (LCG)
-│   └── graph.ts           # Graph algorithms
-├── config.ts          ← Phaser configuration
-├── version.ts         ← Game version
-└── main.ts            ← Entry point
-tests/                 ← 355+ unit tests (mirrors src/ structure)
+packages/
+├── shared/            ← @dicewars/shared — Pure TypeScript game logic + utilities
+│   └── src/game/          24 modules: Territory, Player, GameState, MapGenerator,
+│                          DiceBattle, GameRules, AIPlayer, Alliance, PowerUps, FogOfWar, etc.
+│
+├── server/            ← @dicewars/server — Hono backend (REST + Socket.IO)
+│   └── src/
+│       ├── services/      GameEngine, AITurnRunner, TurnTimer, FogFilter, LobbyService, etc.
+│       ├── ws/            WebSocket handlers (game, lobby, disconnect, spectator, waiting room)
+│       ├── routes/        REST endpoints (auth, lobby, history, stats, AI presets, spectate)
+│       ├── middleware/    Auth, rate limiting, error handling, security headers
+│       └── db/            SQLite + Drizzle ORM schema & migrations
+│
+└── client/            ← @dicewars/client — Phaser 3 frontend (thin renderer)
+    └── src/
+        ├── scenes/        10 scenes: Boot, Menu, Login, Lobby, Setup, WaitingRoom,
+        │                  Game, GameOver, Replay, History
+        ├── rendering/     MapRenderer, DiceRenderer, UIRenderer, BattleAnimator, etc.
+        └── network/       SocketClient, LobbyClient
 ```
 
 ### Architecture Philosophy
 
-Game logic is **completely separated** from rendering. Everything in `src/game/` and `src/utils/` is pure TypeScript with zero framework dependencies. This means:
+Game logic is **completely separated** from rendering and server code. Everything in `packages/shared/` is pure TypeScript with zero framework dependencies. This means:
 
-- **Fully testable** — 355+ unit tests run without a browser or DOM
-- **Easy to refactor** — Change game rules without touching rendering
+- **Fully testable** — 780+ tests run without a browser or DOM
+- **Easy to refactor** — Change game rules without touching rendering or server
+- **Server-authoritative** — Server validates all moves using shared game logic
 - **AI-friendly** — Copilot/AI tools can reason about game logic without Phaser knowledge
 
 Rendering is **stateless** — it reads from `GameState` and draws. No game decisions happen in rendering code.
@@ -147,13 +143,15 @@ See [GAME_LOGIC.md](./GAME_LOGIC.md) for detailed documentation of all game mech
 
 ## 🧪 Testing
 
-All game logic is covered by 355+ unit tests using Vitest:
+780+ tests across shared and server packages using Vitest:
 
 ```bash
-npm run test
+npm run test         # Shared game logic (478+ tests)
+npm run test:server  # Server unit + E2E (300+ tests)
+npm run test:all     # Everything
 ```
 
-Tests use **seeded RNG** for deterministic, reproducible results. Test files are in `tests/` mirroring the `src/` structure. No DOM or Phaser required.
+Tests use **seeded RNG** for deterministic, reproducible results. E2E tests exercise full WebSocket flows (game lifecycle, multi-client, reconnection, stress, fuzz).
 
 ## 📄 License
 

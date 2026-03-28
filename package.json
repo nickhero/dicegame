@@ -1,15 +1,20 @@
 {
   "name": "dicegame",
-  "version": "1.9.0",
+  "version": "2.0.1",
   "description": "",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
   "main": "index.js",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc --noEmit && vite build",
-    "preview": "vite preview",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "typecheck": "tsc --noEmit",
+    "dev": "npm run dev --workspace=packages/client",
+    "dev:server": "npm run dev --workspace=packages/server",
+    "build": "npm run build --workspace=packages/shared && npm run build --workspace=packages/client",
+    "test": "npm run test --workspace=packages/shared",
+    "test:server": "npm run test --workspace=packages/server",
+    "test:all": "npm run test --workspace=packages/shared && npm run test --workspace=packages/server",
+    "typecheck": "tsc --build",
     "release": "commit-and-tag-version",
     "release:minor": "commit-and-tag-version --release-as minor",
     "release:major": "commit-and-tag-version --release-as major",

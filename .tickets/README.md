@@ -4,10 +4,12 @@ Markdown-based ticket system. Each ticket is a `.md` file inside a phase folder.
 
 ## Ticket Format
 
+See `_template.md` for a starter template.
+
 ```markdown
 # Title
 - **Status**: pending | in-progress | done
-- **Phase**: N
+- **Priority**: 🔴 Critical | 🟡 High | 🟢 Normal
 - **Depends on**: (other ticket IDs or "none")
 - **Files**: (key files to create/modify)
 
@@ -19,18 +21,11 @@ What needs to be done.
 - [ ] Task 2
 ```
 
-## Open Tickets
+## Completed Phases
 
-| Phase | Folder | Tickets |
-|-------|--------|---------|
-| 9 | `phase-9-quality-of-life/` | Background music, Save/Load, Tooltips & Tutorial |
-| 10 | `phase-10-advanced-mechanics/` | Territory upgrades, Custom AI builder, Tournament mode |
-| 11 | `phase-11-defects/` | Bug fixes & code quality issues |
-
-Also completed from open phases (tickets removed):
-- Phase 7: Map shape selector, Fog of war toggle, Power-ups toggle, Undo attack
-- Phase 9: Game replay
-- Phase 10: Alliance system, Achievements
+- **Phases 1–8**: Core game, map gen, AI, power-ups, fog of war, alliances, achievements, replay, history
+- **Multiplayer backend**: Monorepo, Hono + Socket.IO, auth, lobby, game engine, AI turns, persistence, spectator
+- **Phase 11**: Defect fixes from multi-model code review
 
 ## Quick Status
 
