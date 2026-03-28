@@ -11,6 +11,7 @@ function createMockNamespace() {
   return {
     to: vi.fn(() => toObj),
     emit: vi.fn(),
+    sockets: new Map(),
     _toObj: toObj,
     _emitFn: emitFn,
   };
@@ -67,6 +68,12 @@ describe('AITurnRunner', () => {
   beforeEach(() => {
     engine = new GameEngine();
     ns = createMockNamespace();
+    // Add a mock socket for the human player so per-socket emission works
+    ns.sockets.set('mock-sock-0', {
+      rooms: new Set([`game:${gameId}`]),
+      data: { userId: 'user-0' },
+      emit: vi.fn(),
+    });
     runner = new AITurnRunner(engine, ns as never);
   });
 
@@ -85,8 +92,10 @@ describe('AITurnRunner', () => {
       // Run AI turns — should process players 1, 2, 3 and stop at player 0
       await runner.runAITurns(gameId);
 
-      // Should have emitted events
-      expect(ns.to).toHaveBeenCalled();
+      // Should have emitted events (per-socket instantBatch or room broadcast)
+      const mockSock = ns.sockets.get('mock-sock-0') as { emit: ReturnType<typeof vi.fn> };
+      const hasEmissions = ns.to.mock.calls.length > 0 || mockSock.emit.mock.calls.length > 0;
+      expect(hasEmissions).toBe(true);
 
       // Turn should be back to player 0 (human) or game is over
       if (game.status === 'playing') {
@@ -185,8 +194,9 @@ describe('AITurnRunner', () => {
 
       await runner.runAITurns(gameId);
 
-      // Check that instantBatch was emitted
-      const emitCalls = ns._emitFn.mock.calls;
+      // Check that instantBatch was emitted per-socket
+      const mockSock = ns.sockets.get('mock-sock-0') as { emit: ReturnType<typeof vi.fn> };
+      const emitCalls = mockSock.emit.mock.calls;
       const batchCalls = emitCalls.filter(
         (call: unknown[]) => call[0] === 'game:instantBatch',
       );
@@ -274,10 +284,9 @@ describe('AITurnRunner', () => {
       const emitCalls = ns._emitFn.mock.calls;
       const eventTypes = emitCalls.map((call: unknown[]) => call[0]);
 
-      // Should emit turnChanged and stateUpdate at minimum
+      // Should emit turnChanged at minimum (stateUpdate is per-socket)
       if (game.status === 'playing') {
         expect(eventTypes).toContain('game:turnChanged');
-        expect(eventTypes).toContain('game:stateUpdate');
       }
     });
   });

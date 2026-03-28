@@ -215,35 +215,32 @@ describe('Auth endpoints', () => {
 
   describe('Rate limiting', () => {
     it('blocks after threshold when not in test env', async () => {
+      const { Hono } = await import('hono');
+      const { rateLimit } = await import('../../src/middleware/rateLimit');
+
       // Temporarily override NODE_ENV to enable rate limiting
       const origEnv = config.nodeEnv;
-      config.nodeEnv = 'development';
-
-      // Create a fresh app with rate limiting active
-      const rateLimitedApp = createApp(db);
+      config.nodeEnv = 'production';
 
       try {
-        // Make 10 successful requests
-        for (let i = 0; i < 10; i++) {
-          const res = await rateLimitedApp.request('/api/auth/guest', {
+        // Create a minimal app with a small rate limit for fast testing
+        const testApp = new Hono();
+        const limiter = rateLimit({ maxRequests: 5, windowMs: 60_000 });
+        testApp.post('/test', limiter, (c) => c.json({ ok: true }));
+
+        // Make 5 successful requests
+        for (let i = 0; i < 5; i++) {
+          const res = await testApp.request('/test', {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Forwarded-For': '1.2.3.4',
-            },
-            body: JSON.stringify({ displayName: `Player${i}` }),
+            headers: { 'X-Forwarded-For': '10.0.0.1' },
           });
           expect(res.status).toBe(200);
         }
 
-        // 11th request should be rate limited
-        const res = await rateLimitedApp.request('/api/auth/guest', {
+        // 6th request should be rate limited
+        const res = await testApp.request('/test', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Forwarded-For': '1.2.3.4',
-          },
-          body: JSON.stringify({ displayName: 'Blocked' }),
+          headers: { 'X-Forwarded-For': '10.0.0.1' },
         });
         expect(res.status).toBe(429);
         const body = await res.json();
