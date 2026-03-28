@@ -6,24 +6,39 @@ Built as a monorepo with a **server-authoritative multiplayer backend** — Phas
 
 ![Game Type](https://img.shields.io/badge/genre-strategy-blue)
 ![Tech](https://img.shields.io/badge/stack-Phaser_3_+_TypeScript-green)
+![Version](https://img.shields.io/badge/version-2.0.0-orange)
 
 ## ✨ Features
 
-- **2–6 player** territory strategy with multiplayer support (Socket.IO)
-- **Server-authoritative** — Hono backend validates all moves, clients send intents
+### Core Gameplay
+- **2–6 player** territory strategy — local or online multiplayer
+- **Server-authoritative** — Hono backend validates all moves, clients send intents via Socket.IO
 - **6 AI personalities** — Cautious, Balanced, Aggressive, Reckless, Expansionist, Turtle
-- **Configurable setup** — Player count, map size (S/M/L/XL), map shapes (rectangle, diamond, ring, continent, islands), fog of war, power-ups, spectator mode
+- **Seeded RNG** for deterministic, reproducible games
+
+### Configuration
+- Player count, map size (S/M/L/XL), map shapes (rectangle, diamond, ring, continent, islands)
+- Square or hex grid types
+- Fog of war, power-ups, alliances — all toggleable
+
+### Tactical Features
 - **Power-ups** — Shield (block attack), Charge (+2 attack), Fortify (+2 defense), Reinforce (+3 dice)
 - **Fog of war** — Only see territories adjacent to your own
-- **Alliances & diplomacy** — Non-aggression pacts, reputation tracking, AI proposal/acceptance/breaking logic
+- **Alliances & diplomacy** — Non-aggression pacts, reputation tracking, betrayal mechanics
+- **Undo attack** (once per turn, local games only)
+
+### Online Multiplayer
+- Guest login, game lobby, waiting rooms
+- AI opponents with randomized personalities
+- Turn timers, disconnect handling with AI takeover, reconnection
+- Player stats and match history persistence
+
+### Extras
 - **12 achievements** tracked across games
 - **Match history** with full game replay and playback controls
-- **Undo attack** (once per turn)
-- **AI surrender** with personality-based logic
-- **Spectator mode** — All-AI games with pause/resume
-- **Procedural audio** — Web Audio sound effects (dice roll, capture, attack fail, elimination, victory, and more)
+- **Spectator mode** — All-AI local games with pause/resume
+- **Procedural audio** — Web Audio sound effects
 - **Post-game stats** with territory-over-time chart
-- **Seeded RNG** for deterministic, reproducible games
 
 ## 🎮 How to Play
 
@@ -73,14 +88,14 @@ npm run dev          # Client dev server on :3000
 npm run dev:server   # Backend server on :3001
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser. For multiplayer, both client and server must be running.
+Open [http://localhost:3000](http://localhost:3000) in your browser. For online multiplayer, both client and server must be running.
 
 ### Other Commands
 
 ```bash
 npm run test         # Run shared package tests (478+)
-npm run test:server  # Run server tests including E2E (306+)
-npm run test:all     # Run all tests (784+)
+npm run test:server  # Run server tests including E2E (300+)
+npm run test:all     # Run all tests (780+)
 npm run build        # Build shared + client for production
 npm run typecheck    # Type-check all packages (tsc --build)
 ```
@@ -92,28 +107,30 @@ This is a **monorepo** (npm workspaces) with three packages:
 ```
 packages/
 ├── shared/            ← @dicewars/shared — Pure TypeScript game logic + utilities
-│   └── src/game/          20 modules: Territory, Player, GameState, MapGenerator,
+│   └── src/game/          24 modules: Territory, Player, GameState, MapGenerator,
 │                          DiceBattle, GameRules, AIPlayer, Alliance, PowerUps, FogOfWar, etc.
 │
 ├── server/            ← @dicewars/server — Hono backend (REST + Socket.IO)
 │   └── src/
 │       ├── services/      GameEngine, AITurnRunner, TurnTimer, FogFilter, LobbyService, etc.
-│       ├── ws/            WebSocket handlers (game, lobby, disconnect, spectator)
-│       ├── routes/        REST endpoints (auth, lobby, history, AI presets)
+│       ├── ws/            WebSocket handlers (game, lobby, disconnect, spectator, waiting room)
+│       ├── routes/        REST endpoints (auth, lobby, history, stats, AI presets, spectate)
 │       ├── middleware/    Auth, rate limiting, error handling, security headers
 │       └── db/            SQLite + Drizzle ORM schema & migrations
 │
 └── client/            ← @dicewars/client — Phaser 3 frontend (thin renderer)
     └── src/
-        ├── scenes/        7 scenes: Boot, Menu, Setup, Game, GameOver, Replay, History
-        └── rendering/     MapRenderer, DiceRenderer, UIRenderer, BattleAnimator, etc.
+        ├── scenes/        10 scenes: Boot, Menu, Login, Lobby, Setup, WaitingRoom,
+        │                  Game, GameOver, Replay, History
+        ├── rendering/     MapRenderer, DiceRenderer, UIRenderer, BattleAnimator, etc.
+        └── network/       SocketClient, LobbyClient
 ```
 
 ### Architecture Philosophy
 
 Game logic is **completely separated** from rendering and server code. Everything in `packages/shared/` is pure TypeScript with zero framework dependencies. This means:
 
-- **Fully testable** — 784+ tests run without a browser or DOM
+- **Fully testable** — 780+ tests run without a browser or DOM
 - **Easy to refactor** — Change game rules without touching rendering or server
 - **Server-authoritative** — Server validates all moves using shared game logic
 - **AI-friendly** — Copilot/AI tools can reason about game logic without Phaser knowledge
@@ -126,11 +143,11 @@ See [GAME_LOGIC.md](./GAME_LOGIC.md) for detailed documentation of all game mech
 
 ## 🧪 Testing
 
-784+ tests across shared and server packages using Vitest:
+780+ tests across shared and server packages using Vitest:
 
 ```bash
 npm run test         # Shared game logic (478+ tests)
-npm run test:server  # Server unit + E2E (306+ tests)
+npm run test:server  # Server unit + E2E (300+ tests)
 npm run test:all     # Everything
 ```
 

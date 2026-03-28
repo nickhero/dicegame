@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-DiceWars is a browser-based 2D pixel art strategy game inspired by DiceWars/KDice. Built with **Phaser 3 + TypeScript + Vite**, tested with **Vitest**. Multiplayer-ready with a server-authoritative backend.
+DiceWars is a browser-based 2D pixel art strategy game inspired by DiceWars/KDice. Built with **Phaser 3 + TypeScript + Vite**, tested with **Vitest**. Features a **server-authoritative multiplayer backend** with Hono + Socket.IO.
 
 ## Architecture — CRITICAL
 
@@ -16,7 +16,7 @@ packages/
 │
 ├── server/    ← @dicewars/server — Hono backend (REST + Socket.IO).
 │              Server-authoritative game engine. Validates & executes all moves.
-│              Imports game logic from @dicewars/shared.
+│              SQLite + Drizzle ORM for persistence. Imports from @dicewars/shared.
 │
 └── client/    ← @dicewars/client — Phaser 3 frontend (thin renderer).
                Sends player intents via WebSocket. Renders state from server.
@@ -41,6 +41,7 @@ packages/
 | `BattleAnimator.ts` | Battle popup animations |
 | `TerritoryEffects.ts` | Visual effects (arrows, glow, pulse, warnings) |
 | `EventLog.ts` | Scrollable event log panel |
+| `ToastManager.ts` | Toast notification popups |
 | `SoundManager.ts` | Procedural Web Audio sound effects |
 
 ### Client scenes (packages/client/src/scenes/)
@@ -49,11 +50,21 @@ packages/
 |------|---------|
 | `BootScene.ts` | Loading screen |
 | `MenuScene.ts` | Title, start, history, achievements gallery |
-| `SetupScene.ts` | Game configuration UI |
-| `GameScene.ts` | Main gameplay (~1600 lines) |
+| `LoginScene.ts` | Guest login for online play |
+| `LobbyScene.ts` | Online game browser + create/join |
+| `SetupScene.ts` | Game configuration UI (local & online) |
+| `WaitingRoomScene.ts` | Pre-game lobby for online matches |
+| `GameScene.ts` | Main gameplay (~2000 lines) |
 | `GameOverScene.ts` | Victory/defeat + stats + achievements |
 | `ReplayScene.ts` | Game replay playback |
 | `HistoryScene.ts` | Match history browser |
+
+### Client networking (packages/client/src/network/)
+
+| File | Purpose |
+|------|---------|
+| `SocketClient.ts` | Socket.IO connection management |
+| `LobbyClient.ts` | REST API client for lobby/auth |
 
 ## Tech Stack
 
@@ -61,8 +72,9 @@ packages/
 |-------|------|---------|
 | Runtime | Node.js | 24 (see .nvmrc) |
 | Monorepo | npm workspaces | — |
-| Framework | Phaser 3 | ^3.88 |
+| Framework | Phaser 3 | ^3.90 |
 | Backend | Hono + Socket.IO | — |
+| Database | SQLite + Drizzle ORM | better-sqlite3 |
 | Language | TypeScript | ^5.x |
 | Bundler | Vite | ^5.x |
 | Test Runner | Vitest | ^2.x |
@@ -105,6 +117,8 @@ npm run typecheck      # Type-check all packages (tsc --build)
 | `Alliance.ts` | Alliance system, reputation, AI diplomacy |
 | `Achievements.ts` | 12 achievements with check functions |
 | `StorageAdapter.ts` | Pluggable storage abstraction (no direct localStorage) |
+| `ServerTypes.ts` | Shared type definitions for server communication |
+| `ErrorContract.ts` | Typed error codes shared between client and server |
 
 ## Key Patterns
 
@@ -118,31 +132,38 @@ All randomness uses `SeededRandom` from `src/utils/random.ts`. Pass `rng` explic
 Uses grid-based region growing (BFS flood-fill from seed points). Supports both square and hex grids with configurable map shapes (rectangle, diamond, ring, continent, islands). Produces territories with cells, adjacency graph, and visual centers.
 
 ### AI strategy
-Six AI personality types (aggressive, cautious, expansionist, defender, random, balanced) each with distinct attack thresholds, risk tolerance, and expansion priorities. AI is alliance-aware — considers reputation and diplomatic relationships when choosing targets.
+Six AI personality types (cautious, balanced, aggressive, reckless, expansionist, turtle) each with distinct attack thresholds, risk tolerance, and expansion priorities. AI is alliance-aware — considers reputation and diplomatic relationships when choosing targets. Online multiplayer always assigns random personalities to AI players (server-side).
 
 ### Power-ups, Fog of War & Alliances
 Power-ups (Shield, Charge, Fortify, Reinforce) add tactical depth. Fortify clamps dice moved to target capacity (`MAX_DICE_PER_TERRITORY - target.dice`). Fog of war limits visibility to owned + adjacent territories; server sends per-player filtered state via `FogFilter.filterStateForPlayer()`. The alliance system uses a **proposal flow** — `proposeAlliance` creates a proposal; mutual proposals auto-accept, or the target can `respondAlliance`. Attacking an ally breaks the alliance (same as AI path). Includes reputation tracking, betrayal mechanics, and AI diplomacy logic.
+
+### Online vs Local game differences
+Online multiplayer enforces several restrictions compared to local play:
+- **Speed**: Always `normal` (no fast/instant options)
+- **Undo**: Disabled
+- **Spectator mode**: Not available in online setup
+- **AI personality**: Always randomized server-side (client shows Open/AI toggle only)
 
 ### Server architecture (packages/server/src/)
 
 | Directory | Key Files |
 |-----------|-----------|
-| `services/` | `GameEngine.ts`, `AITurnRunner.ts`, `TurnTimer.ts`, `FogFilter.ts`, `handleGameEnd.ts`, `LobbyService.ts`, `MatchHistoryService.ts`, `UserService.ts`, `AIPresetService.ts` |
-| `ws/` | `index.ts` (Socket.IO setup), `gameHandlers.ts`, `disconnectHandler.ts`, `waitingRoom.ts`, `spectatorHandlers.ts`, `serializeState.ts` |
+| `services/` | `GameEngine.ts`, `AITurnRunner.ts`, `TurnTimer.ts`, `FogFilter.ts`, `handleGameEnd.ts`, `LobbyService.ts`, `MatchHistoryService.ts`, `UserService.ts`, `UserStatsService.ts`, `AchievementService.ts`, `AIPresetService.ts`, `UserPreferencesService.ts` |
+| `ws/` | `index.ts` (Socket.IO setup), `gameHandlers.ts`, `disconnectHandler.ts`, `waitingRoom.ts`, `spectatorHandlers.ts`, `serializeState.ts`, `lobbyBroadcaster.ts`, `cleanupJob.ts` |
 | `routes/` | `auth.ts`, `lobby.ts`, `history.ts`, `aiPresets.ts`, `preferences.ts`, `spectate.ts`, `stats.ts`, `health.ts` |
 | `middleware/` | `auth.ts`, `errorHandler.ts`, `rateLimit.ts`, `securityHeaders.ts` |
 | `db/` | `schema.ts` (Drizzle), `connection.ts`, `migrate.ts` |
 | `types/` | `api.ts`, `events.ts`, `env.ts` |
 
-`GameEngine` and `AITurnRunner` are module-level singletons (see `*Instance.ts` files). `handleGameEnd` is extracted into its own service so both `gameHandlers.ts` and `AITurnRunner` can call it.
+`GameEngine` and `AITurnRunner` are module-level singletons (see `*Instance.ts` files). `handleGameEnd` is extracted into its own service so both `gameHandlers.ts` and `AITurnRunner` can call it. All fire-and-forget `runAITurns()` calls must have `.catch()` handlers to prevent unhandled promise rejections crashing Node.
 
 ## Testing
 
 Tests live in each package's `tests/` directory. All game logic tests run against pure TypeScript — no DOM, no Phaser.
 
 - **Shared**: 478+ tests in `packages/shared/tests/` — `npm run test`
-- **Server**: 306+ tests (unit + E2E) in `packages/server/tests/` — `npm run test:server`
-- **All**: `npm run test:all` (784+ total)
+- **Server**: 300+ tests (unit + E2E) in `packages/server/tests/` — `npm run test:server`
+- **All**: `npm run test:all` (780+ total)
 
 When modifying game logic, always run `npm run test` to verify. When modifying rendering, run `npm run typecheck` at minimum.
 
@@ -167,7 +188,7 @@ All visuals are programmatic — no external image assets. Dice textures are gen
 
 ### Semantic Versioning
 
-The game version lives in `src/version.ts` and is displayed on the main menu. Keep it in sync with `package.json`.
+The game version lives in `packages/client/src/version.ts` and is displayed on the main menu. It is auto-updated by `commit-and-tag-version` — do **not** manually edit it.
 
 ### Conventional Commits (REQUIRED)
 
@@ -206,7 +227,7 @@ style(ui): improve HUD layout spacing
 
 ### Version Bump Workflow
 
-Version bumps are automated via `commit-and-tag-version`. Do **not** manually edit `src/version.ts` or the version in `package.json`.
+Version bumps are automated via `commit-and-tag-version`. Do **not** manually edit `packages/client/src/version.ts` or the version in `package.json`.
 
 ```bash
 npm run release          # auto-detects bump from commit history (feat→minor, fix→patch)
@@ -214,7 +235,7 @@ npm run release:minor    # force minor bump
 npm run release:major    # force major bump
 ```
 
-This reads all commits since the last git tag, determines the bump type, updates `src/version.ts` + `package.json` + `package-lock.json`, creates a version commit, and tags it.
+This reads all commits since the last git tag, determines the bump type, updates `packages/client/src/version.ts` + `package.json` + `package-lock.json`, creates a version commit, and tags it.
 
 ### Commit Hooks (automated via husky)
 
