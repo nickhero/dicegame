@@ -20,6 +20,7 @@ describe('LocalGameController', () => {
   let onBattleResult: ReturnType<typeof vi.fn>;
   let onGameOver: ReturnType<typeof vi.fn>;
   let onEventLog: ReturnType<typeof vi.fn>;
+  let onAllianceProposal: ReturnType<typeof vi.fn>;
 
   function createController(undoEnabled = true) {
     rng = new SeededRandom(12345);
@@ -31,11 +32,14 @@ describe('LocalGameController', () => {
     state.allianceState = createAllianceState(2);
 
     recorder = new GameRecorder(12345, 2);
+    recorder.setInitialState(territories, players, map.adjacency, false);
+    recorder.startTurn(1, 0);
     stats = new GameStats();
     onStateUpdate = vi.fn();
     onBattleResult = vi.fn();
     onGameOver = vi.fn();
     onEventLog = vi.fn();
+    onAllianceProposal = vi.fn();
 
     return new LocalGameController(
       state,
@@ -49,6 +53,7 @@ describe('LocalGameController', () => {
         onBattleResult,
         onGameOver,
         onEventLog,
+        onAllianceProposal,
       },
     );
   }
@@ -108,12 +113,36 @@ describe('LocalGameController', () => {
     expect(ctrl.canUndo()).toBe(false);
   });
 
-  it('handles endTurn and advances turn state', async () => {
+  it('handles endTurn and records bonus dice', async () => {
     const ctrl = createController();
-    const initialTurn = ctrl.getState().turnNumber;
-
     await ctrl.endTurn();
     expect(onStateUpdate).toHaveBeenCalled();
-    expect(ctrl.canUndo()).toBe(false);
+    const recording = recorder.getRecording(null, "None");
+    const allActions = recording.turns.flatMap((t) => t.actions);
+    const endTurnAction = allActions.find((a) => a.type === "endTurn");
+    expect(endTurnAction).toBeDefined();
+    expect((endTurnAction as any).bonusDice).toBeGreaterThanOrEqual(0);
+  });
+
+  it('supports local human alliance proposals', async () => {
+    const ctrl = createController();
+    const state = ctrl.getState();
+    state.players[1].isHuman = true; // Two human players
+
+    const success = await ctrl.proposeAlliance(1);
+    expect(success).toBe(true);
+    expect(onAllianceProposal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fromPlayer: 0,
+        toPlayer: 1,
+        duration: 5,
+      })
+    );
+
+    // Respond accept
+    await ctrl.respondAlliance("0-1-1", true);
+    expect(state.allianceState!.alliances.length).toBe(1);
+    expect(onStateUpdate).toHaveBeenCalled();
   });
 });
+

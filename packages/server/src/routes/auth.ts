@@ -109,12 +109,12 @@ export function createAuthRoutes(db: AppDatabase) {
       );
     }
 
-    if (!password || typeof password !== 'string' || password.length < 8) {
+    if (!password || typeof password !== "string" || password.length < 8 || password.length > 128) {
       return c.json(
         {
           error: {
-            code: 'AUTH_INVALID_PASSWORD',
-            message: 'Password must be at least 8 characters',
+            code: "AUTH_INVALID_PASSWORD",
+            message: "Password must be between 8 and 128 characters",
           },
         },
         400,
@@ -161,7 +161,7 @@ export function createAuthRoutes(db: AppDatabase) {
     const username = (body.username ?? body.displayName)?.trim();
     const password = body.password;
 
-    if (!username || !password || typeof password !== 'string') {
+    if (!username || !password || typeof password !== "string" || password.length > 128) {
       return c.json(
         {
           error: {

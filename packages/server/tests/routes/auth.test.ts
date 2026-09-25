@@ -225,7 +225,18 @@ describe('Auth endpoints', () => {
       });
       expect(res.status).toBe(400);
       const body = await res.json();
-      expect(body.error.code).toBe('AUTH_INVALID_PASSWORD');
+      expect(body.error.code).toBe("AUTH_INVALID_PASSWORD");
+    });
+
+    it("rejects password exceeding 128 chars", async () => {
+      const res = await app.request("/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: "ValidUserLong", password: "a".repeat(129) }),
+      });
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error.code).toBe("AUTH_INVALID_PASSWORD");
     });
 
     it('rejects duplicate username', async () => {

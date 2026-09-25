@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { gamePlayers } from '../db/schema';
 import type { Namespace, Socket } from 'socket.io';
-import type { GameErrorCode } from '@dicewars/shared';
+import { GameErrorCode } from '@dicewars/shared';
 import { GameStats } from '@dicewars/shared';
 import { GameEngine, GameEngineError } from '../services/GameEngine';
 import type { ActiveGame } from '../services/GameEngine';
@@ -85,7 +85,11 @@ export function setupGameActionHandlers(
     }
     const gameId = socket.data.gameId;
     if (!gameId) {
-      return ack({ success: false, error: { code: 'CONNECTION_NOT_IN_GAME' as GameErrorCode, message: 'Not in a game' } });
+      return ack({ success: false, error: { code: "CONNECTION_NOT_IN_GAME" as GameErrorCode, message: "Not in a game" } });
+    }
+    const userId = socket.data.userId;
+    if (!userId) {
+      return ack({ success: false, error: { code: GameErrorCode.AUTH_REQUIRED, message: "Authentication required" } });
     }
 
     try {
@@ -142,10 +146,15 @@ export function setupGameActionHandlers(
     }
 
     try {
+      const userId = socket.data.userId;
+    if (!userId) {
+      return ack({ success: false, error: { code: GameErrorCode.AUTH_REQUIRED, message: "Authentication required" } });
+    }
+
       // Clear timer for the current player's manual turn end
       if (turnTimer) turnTimer.clearTimer(gameId);
 
-      const result = gameEngine.endTurn(gameId, socket.data.userId);
+      const result = gameEngine.endTurn(gameId, userId);
 
       const game = gameEngine.getGame(gameId)!;
       const playerIndex = game.playerMap.get(socket.data.userId)!;
@@ -196,8 +205,13 @@ export function setupGameActionHandlers(
       return ack({ success: false, error: { code: 'CONNECTION_NOT_IN_GAME' as GameErrorCode, message: 'Not in a game' } });
     }
 
+    const userId = socket.data.userId;
+    if (!userId) {
+      return ack({ success: false, error: { code: GameErrorCode.AUTH_REQUIRED, message: "Authentication required" } });
+    }
+
     try {
-      gameEngine.usePowerUp(gameId, socket.data.userId, type, targetTerritoryId, sourceTerritoryId);
+      gameEngine.usePowerUp(gameId, userId, type, targetTerritoryId, sourceTerritoryId);
 
       const game = gameEngine.getGame(gameId)!;
       emitStateUpdate(gameId, game);
@@ -218,8 +232,13 @@ export function setupGameActionHandlers(
       return ack({ success: false, error: { code: 'CONNECTION_NOT_IN_GAME' as GameErrorCode, message: 'Not in a game' } });
     }
 
+    const userId = socket.data.userId;
+    if (!userId) {
+      return ack({ success: false, error: { code: GameErrorCode.AUTH_REQUIRED, message: "Authentication required" } });
+    }
+
     try {
-      const result = gameEngine.surrender(gameId, socket.data.userId);
+      const result = gameEngine.surrender(gameId, userId);
 
       const game = gameEngine.getGame(gameId)!;
       emitStateUpdate(gameId, game);
@@ -253,8 +272,13 @@ export function setupGameActionHandlers(
       return ack({ success: false, error: { code: 'CONNECTION_NOT_IN_GAME' as GameErrorCode, message: 'Not in a game' } });
     }
 
+    const userId = socket.data.userId;
+    if (!userId) {
+      return ack({ success: false, error: { code: GameErrorCode.AUTH_REQUIRED, message: "Authentication required" } });
+    }
+
     try {
-      gameEngine.undo(gameId, socket.data.userId);
+      gameEngine.undo(gameId, userId);
 
       const game = gameEngine.getGame(gameId)!;
       const state = serializeGameState(game);
@@ -282,8 +306,13 @@ export function setupGameActionHandlers(
       return ack({ success: false, error: { code: 'CONNECTION_NOT_IN_GAME' as GameErrorCode, message: 'Not in a game' } });
     }
 
+    const userId = socket.data.userId;
+    if (!userId) {
+      return ack({ success: false, error: { code: GameErrorCode.AUTH_REQUIRED, message: "Authentication required" } });
+    }
+
     try {
-      const result = gameEngine.proposeAlliance(gameId, socket.data.userId, targetPlayerIndex);
+      const result = gameEngine.proposeAlliance(gameId, userId, targetPlayerIndex);
       const game = gameEngine.getGame(gameId)!;
 
       if (result.targetIsAI) {
@@ -311,8 +340,9 @@ export function setupGameActionHandlers(
           if (s.rooms.has(`game:${gameId}`) && s.data.userId) {
             const playerIndex = game.playerMap.get(s.data.userId as string);
             if (playerIndex === targetPlayerIndex) {
+              const proposalId = `${result.fromPlayer}-${result.toPlayer}-${game.state.turnNumber}`;
               s.emit("game:allianceProposal", {
-                proposalId: String(result.fromPlayer),
+                proposalId,
                 fromPlayerIndex: result.fromPlayer,
                 toPlayerIndex: result.toPlayer,
                 duration: result.duration,
@@ -343,13 +373,17 @@ export function setupGameActionHandlers(
     }
 
     try {
-      // proposalId encodes the proposer's player index
-      const proposerIndex = parseInt(proposalId, 10);
+      const parts = proposalId.split("-");
+      const proposerIndex = parseInt(parts[0], 10);
       if (isNaN(proposerIndex)) {
-        return ack({ success: false, error: { code: 'GAME_ALLIANCE_PROPOSAL_NOT_FOUND' as GameErrorCode, message: 'Invalid proposal ID' } });
+        return ack({ success: false, error: { code: GameErrorCode.GAME_ALLIANCE_PROPOSAL_NOT_FOUND, message: 'Invalid proposal ID' } });
       }
 
-      gameEngine.respondAlliance(gameId, socket.data.userId, proposerIndex, accept);
+      const userId = socket.data.userId;
+      if (!userId) {
+        return ack({ success: false, error: { code: GameErrorCode.AUTH_REQUIRED, message: "Authentication required" } });
+      }
+      gameEngine.respondAlliance(gameId, userId, proposerIndex, accept);
 
       const game = gameEngine.getGame(gameId)!;
       emitStateUpdate(gameId, game);

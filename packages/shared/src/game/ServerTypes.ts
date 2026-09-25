@@ -260,9 +260,11 @@ export interface ClientToServerEvents {
   ) => void;
 }
 
+export type InterServerEvents = Record<string, never>;
+
 export interface SocketData {
-  userId?: string;
-  userName?: string;
+  userId: string;
+  userName: string;
   gameId?: string;
   isSpectator?: boolean;
 }

@@ -12,6 +12,7 @@ import {
   SeededRandom,
   GameRecorder,
   GameStats,
+  largestContiguousGroup,
 } from '@dicewars/shared';
 import type {
   IGameController,
@@ -112,12 +113,20 @@ export class LocalGameController implements IGameController {
     this.undoUsedThisTurn = false;
 
     const previousPlayer = this.state.currentPlayerIndex;
+    const player = this.state.players[previousPlayer];
+    const playerTerritories = player
+      ? this.state.territories.filter((t) => t.owner === player.id).map((t) => t.id)
+      : [];
+    const bonusDice = playerTerritories.length > 0
+      ? largestContiguousGroup(playerTerritories, this.state.adjacency)
+      : 0;
+
     endTurn(this.state, this.rng);
 
     this.recorder.recordAction({
       type: "endTurn",
       playerId: previousPlayer,
-      bonusDice: 0,
+      bonusDice,
     });
     this.recorder.endCurrentTurn();
     this.recorder.startTurn(this.state.turnNumber, this.state.currentPlayerIndex);
@@ -176,7 +185,7 @@ export class LocalGameController implements IGameController {
     const targetPlayer = this.state.players[targetIndex];
     if (!targetPlayer || !this.state.allianceState) return false;
 
-    if (!targetPlayer.isHuman && this.state.allianceState) {
+    if (!targetPlayer.isHuman) {
       const proposal = { fromPlayer: this.localPlayerIndex, toPlayer: targetIndex, duration: 5 };
       const accepts = aiWouldAcceptProposal(
         this.state.allianceState,
@@ -193,12 +202,34 @@ export class LocalGameController implements IGameController {
         this.events.onToast?.(`${targetPlayer.name} declined alliance`, 'warning');
         return false;
       }
+    } else {
+      // Local human-to-human proposal (hotseat)
+      const proposalId = `${this.localPlayerIndex}-${targetIndex}-${this.state.turnNumber}`;
+      this.events.onAllianceProposal?.({
+        proposalId,
+        fromPlayer: this.localPlayerIndex,
+        toPlayer: targetIndex,
+        duration: 5,
+      });
+      return true;
     }
-    return false;
   }
 
-  async respondAlliance(_proposalId: string, _accept: boolean): Promise<void> {
-    // Local alliances handled immediately
+  async respondAlliance(proposalId: string, accept: boolean): Promise<void> {
+    if (!this.state.allianceState) return;
+    const parts = proposalId.split("-");
+    const proposerIndex = parseInt(parts[0], 10);
+    const targetIndex = parts[1] !== undefined ? parseInt(parts[1], 10) : this.localPlayerIndex;
+
+    if (accept) {
+      formAlliance(this.state.allianceState, proposerIndex, targetIndex, this.state.turnNumber, 5);
+      const p1 = this.state.players[proposerIndex]?.name ?? `Player ${proposerIndex + 1}`;
+      const p2 = this.state.players[targetIndex]?.name ?? `Player ${targetIndex + 1}`;
+      this.events.onEventLog?.(`🤝 Formed alliance between ${p1} and ${p2} (5 turns)!`, 0x44ddff);
+      this.events.onStateUpdate(this.state);
+    } else {
+      this.events.onToast?.("Alliance proposal declined", "info");
+    }
   }
 
   destroy(): void {

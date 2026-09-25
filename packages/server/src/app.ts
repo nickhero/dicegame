@@ -13,9 +13,10 @@ import { createStatsRoutes } from './routes/stats';
 import { createPreferencesRoutes } from './routes/preferences';
 import { createAIPresetRoutes } from './routes/aiPresets';
 import { getDb, AppDatabase } from './db/connection';
+import type { AppEnv } from './types/env';
 
-export function createApp(db?: AppDatabase): Hono {
-  const app = new Hono();
+export function createApp(db?: AppDatabase): Hono<AppEnv> {
+  const app = new Hono<AppEnv>();
   const database = db ?? getDb();
 
   // Global middleware

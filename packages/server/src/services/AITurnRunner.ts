@@ -350,8 +350,9 @@ export class AITurnRunner {
           if (socket.rooms.has(`game:${gameId}`) && socket.data.userId) {
             const playerIndex = game.playerMap.get(socket.data.userId as string);
             if (playerIndex === proposal.toPlayer) {
+              const proposalId = `${proposal.fromPlayer}-${proposal.toPlayer}-${game.state.turnNumber}`;
               socket.emit("game:allianceProposal", {
-                proposalId: String(proposal.fromPlayer),
+                proposalId,
                 fromPlayerIndex: proposal.fromPlayer,
                 toPlayerIndex: proposal.toPlayer,
                 duration: proposal.duration,

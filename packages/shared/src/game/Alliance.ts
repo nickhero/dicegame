@@ -13,6 +13,7 @@ export interface Alliance {
 }
 
 export interface AllianceProposal {
+  proposalId?: string;
   fromPlayer: number;
   toPlayer: number;
   duration: number;

@@ -494,7 +494,7 @@ describe('Game Action WebSocket Handlers', () => {
       const proposalCall = socket1.emit.mock.calls.find((c: unknown[]) => c[0] === 'game:allianceProposal');
       expect(proposalCall).toBeDefined();
       expect(proposalCall[1]).toEqual({
-        proposalId: '0',
+        proposalId: '0-1-1',
         fromPlayerIndex: 0,
         toPlayerIndex: 1,
         duration: 5,
