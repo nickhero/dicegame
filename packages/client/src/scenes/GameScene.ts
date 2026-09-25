@@ -20,6 +20,7 @@ import {
   GameStats,
   createAllianceState, wouldBreakAlliance, breakAlliance,
   tickAlliances, formAlliance, aiWouldAcceptProposal,
+  useReinforce, useFortify, MAX_DICE_PER_TERRITORY, areAllied, getAllies,
   AllianceProposal,
   createSnapshot, restoreSnapshot,
   PLAYER_COLORS, GAME_WIDTH, GAME_HEIGHT,
@@ -789,15 +790,38 @@ export class GameScene extends Phaser.Scene {
   }
 
   private async executeHumanSurrender(): Promise<void> {
-    if (!this.socketClient) return;
-    try {
-      const ack = await this.socketClient.surrender();
-      if (!ack.success) {
-        this.toastManager.show(ack.error?.message || 'Surrender failed', 'error');
+    if (this.isOnlineGame) {
+      if (!this.socketClient) return;
+      try {
+        const ack = await this.socketClient.surrender();
+        if (!ack.success) {
+          this.toastManager.show(ack.error?.message || 'Surrender failed', 'error');
+        }
+      } catch {
+        this.toastManager.show('Connection error', 'error');
       }
-    } catch {
-      this.toastManager.show('Connection error', 'error');
+      return;
     }
+
+    // Local surrender
+    const humanPlayer = this.gameState.players[this.gameState.currentPlayerIndex];
+    if (!humanPlayer || !humanPlayer.isHuman) return;
+
+    this.eventLog.addEvent(`${humanPlayer.name} surrendered!`, 0xff4444);
+    const gameRecorder = this.data.get('gameRecorder') as GameRecorder | undefined;
+    gameRecorder?.recordAction({ type: 'surrender', playerId: humanPlayer.id });
+
+    distributeSurrenderedTerritories(this.gameState, humanPlayer.id);
+    this.refreshDisplay();
+
+    if ((this.gameState.phase as string) === 'gameOver') {
+      gameRecorder?.endCurrentTurn();
+      this.time.delayedCall(this.getDelay(1000), () => this.handleGameOver());
+      return;
+    }
+
+    this.soundManager.playElimination();
+    await this.executeLocalEndTurn();
   }
 
   private onTerritoryClick(territoryId: number): void {
@@ -1052,14 +1076,38 @@ export class GameScene extends Phaser.Scene {
   }
 
   private async activateReinforce(territoryId: number): Promise<void> {
-    if (!this.socketClient) return;
-    try {
-      const ack = await this.socketClient.usePowerUp('reinforce', territoryId);
-      if (!ack.success) {
-        this.toastManager.show(ack.error?.message || 'Power-up failed', 'error');
+    if (this.isOnlineGame) {
+      if (!this.socketClient) return;
+      try {
+        const ack = await this.socketClient.usePowerUp('reinforce', territoryId);
+        if (!ack.success) {
+          this.toastManager.show(ack.error?.message || 'Power-up failed', 'error');
+        }
+      } catch {
+        this.toastManager.show('Connection error', 'error');
       }
-    } catch {
-      this.toastManager.show('Connection error', 'error');
+      this.dismissPowerUpPopup();
+      return;
+    }
+
+    // Local reinforce
+    const success = useReinforce(territoryId, this.gameState);
+    if (success) {
+      this.soundManager.playCapture();
+      const owner = this.gameState.players[this.gameState.currentPlayerIndex];
+      this.eventLog.addEvent(
+        `⚡ ${owner?.name ?? 'Player'} reinforced T${territoryId} (+2 dice)`,
+        PLAYER_COLORS[this.gameState.currentPlayerIndex] ?? 0x44dd88
+      );
+      const gameRecorder = this.data.get('gameRecorder') as GameRecorder | undefined;
+      gameRecorder?.recordAction({
+        type: 'reinforce',
+        territoryId,
+        playerId: this.gameState.currentPlayerIndex,
+      });
+      this.refreshDisplay();
+    } else {
+      this.toastManager.show('Cannot use Reinforce here', 'error');
     }
     this.dismissPowerUpPopup();
   }
@@ -1080,18 +1128,57 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    if (!this.socketClient) {
+    if (this.isOnlineGame) {
+      if (!this.socketClient) {
+        this.cancelFortify();
+        return;
+      }
+      try {
+        const ack = await this.socketClient.usePowerUp('fortify', targetId, sourceId);
+        if (!ack.success) {
+          this.toastManager.show(ack.error?.message || 'Fortify failed', 'error');
+        }
+      } catch {
+        this.toastManager.show('Connection error', 'error');
+      }
       this.cancelFortify();
       return;
     }
 
-    try {
-      const ack = await this.socketClient.usePowerUp('fortify', targetId, sourceId);
-      if (!ack.success) {
-        this.toastManager.show(ack.error?.message || 'Fortify failed', 'error');
-      }
-    } catch {
-      this.toastManager.show('Connection error', 'error');
+    // Local fortify
+    const source = this.gameState.territories[sourceId];
+    if (!source || !source.neighbors.includes(targetId)) {
+      this.toastManager.show('Target must be an adjacent territory', 'error');
+      this.cancelFortify();
+      return;
+    }
+
+    const count = Math.min(3, source.dice - 1, MAX_DICE_PER_TERRITORY - target.dice);
+    if (count <= 0) {
+      this.toastManager.show('Cannot move dice (target full or source has only 1 die)', 'error');
+      this.cancelFortify();
+      return;
+    }
+
+    const success = useFortify(sourceId, targetId, count, this.gameState);
+    if (success) {
+      this.soundManager.playCapture();
+      const owner = this.gameState.players[this.gameState.currentPlayerIndex];
+      this.eventLog.addEvent(
+        `⚡ ${owner?.name ?? 'Player'} fortified T${sourceId} → T${targetId} (+${count} dice)`,
+        PLAYER_COLORS[this.gameState.currentPlayerIndex] ?? 0x44dd88
+      );
+      const gameRecorder = this.data.get('gameRecorder') as GameRecorder | undefined;
+      gameRecorder?.recordAction({
+        type: 'fortify',
+        fromId: sourceId,
+        toId: targetId,
+        diceCount: count,
+        playerId: this.gameState.currentPlayerIndex,
+      });
+      this.refreshDisplay();
+    } else {
+      this.toastManager.show('Fortify failed', 'error');
     }
     this.cancelFortify();
   }
@@ -1257,17 +1344,89 @@ export class GameScene extends Phaser.Scene {
   // ─── Alliance Proposal ─────────────────────────────────────
 
   private async proposeAllianceToPlayer(targetIndex: number): Promise<void> {
-    if (!this.socketClient) return;
-    try {
-      const ack = await this.socketClient.proposeAlliance(targetIndex);
-      if (ack.success) {
-        const targetName = this.gameState.players[targetIndex]?.name ?? 'Unknown';
-        this.toastManager.show(`Alliance proposed to ${targetName}`, 'info');
-      } else {
-        this.toastManager.show(ack.error?.message || 'Alliance proposal failed', 'error');
+    if (this.isOnlineGame) {
+      if (!this.socketClient) return;
+      try {
+        const ack = await this.socketClient.proposeAlliance(targetIndex);
+        if (ack.success) {
+          const targetName = this.gameState.players[targetIndex]?.name ?? 'Unknown';
+          this.toastManager.show(`Alliance proposed to ${targetName}`, 'info');
+        } else {
+          this.toastManager.show(ack.error?.message || 'Alliance proposal failed', 'error');
+        }
+      } catch {
+        this.toastManager.show('Connection error', 'error');
       }
-    } catch {
-      this.toastManager.show('Connection error', 'error');
+      return;
+    }
+
+    // Local alliance proposal
+    const allianceState = this.gameState.allianceState;
+    if (!allianceState) {
+      this.toastManager.show('Alliances are disabled in this game', 'error');
+      return;
+    }
+
+    const humanIndex = this.gameState.currentPlayerIndex;
+    const humanPlayer = this.gameState.players[humanIndex];
+    const targetPlayer = this.gameState.players[targetIndex];
+
+    if (!humanPlayer || !targetPlayer || !targetPlayer.isAlive) {
+      this.toastManager.show('Invalid target player', 'error');
+      return;
+    }
+
+    if (humanIndex === targetIndex) {
+      this.toastManager.show('Cannot ally with yourself', 'error');
+      return;
+    }
+
+    if (areAllied(allianceState, humanIndex, targetIndex)) {
+      this.toastManager.show(`Already allied with ${targetPlayer.name}`, 'info');
+      return;
+    }
+
+    if (getAllies(allianceState, humanIndex).length >= 1) {
+      this.toastManager.show('You already have an active alliance', 'error');
+      return;
+    }
+
+    if (getAllies(allianceState, targetIndex).length >= 1) {
+      this.toastManager.show(`${targetPlayer.name} already has an active alliance`, 'info');
+      return;
+    }
+
+    const proposal: AllianceProposal = {
+      fromPlayer: humanIndex,
+      toPlayer: targetIndex,
+      duration: 5,
+    };
+
+    const targetName = targetPlayer.name;
+    const accepted = aiWouldAcceptProposal(allianceState, this.gameState, proposal);
+
+    if (accepted) {
+      formAlliance(allianceState, proposal.fromPlayer, proposal.toPlayer, this.gameState.turnNumber);
+      this.soundManager.playCapture();
+      this.toastManager.show(`Alliance formed with ${targetName}!`, 'info');
+      this.eventLog.addEvent(
+        `🤝 Alliance formed: ${humanPlayer.name} & ${targetName}`,
+        0x00e5ff
+      );
+      const gameRecorder = this.data.get('gameRecorder') as GameRecorder | undefined;
+      gameRecorder?.recordAction({
+        type: 'allianceFormed',
+        player1: proposal.fromPlayer,
+        player2: proposal.toPlayer,
+        duration: 5,
+      });
+      this.refreshDisplay();
+    } else {
+      this.toastManager.show(`${targetName} declined your alliance proposal`, 'info');
+      this.eventLog.addEvent(
+        `${targetName} declined alliance proposal`,
+        0x888888
+      );
     }
   }
 
@@ -1883,9 +2042,20 @@ export class GameScene extends Phaser.Scene {
     };
 
     acceptBtn.on('pointerup', () => {
-      if (this.socketClient) {
+      if (this.isOnlineGame && this.socketClient) {
         this.socketClient.respondAlliance(String(proposal.fromPlayer), true);
         this.eventLog.addEvent(`🤝 You formed an alliance with ${fromPlayer.name}`, 0x44ddff);
+      } else if (!this.isOnlineGame && this.gameState.allianceState) {
+        formAlliance(this.gameState.allianceState, proposal.fromPlayer, proposal.toPlayer, this.gameState.turnNumber);
+        this.soundManager.playCapture();
+        this.eventLog.addEvent(`🤝 You formed an alliance with ${fromPlayer.name}`, 0x44ddff);
+        const gameRecorder = this.data.get('gameRecorder') as GameRecorder | undefined;
+        gameRecorder?.recordAction({
+          type: 'allianceFormed',
+          player1: proposal.fromPlayer,
+          player2: proposal.toPlayer,
+          duration: 5,
+        });
       }
       cleanup();
       this.refreshDisplay();

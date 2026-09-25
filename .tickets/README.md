@@ -21,6 +21,10 @@ What needs to be done.
 - [ ] Task 2
 ```
 
+## Active Phase
+
+- **v2.1-rework**: Local parity restoration, online alliances, account auth, stats/history sync, islands map shape, chat, GameScene refactor, and client testing.
+
 ## Completed Phases
 
 - **Phases 1–8**: Core game, map gen, AI, power-ups, fog of war, alliances, achievements, replay, history

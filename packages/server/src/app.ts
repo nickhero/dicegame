@@ -2,21 +2,20 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { config } from './config';
+import { securityHeaders } from './middleware/securityHeaders';
+import { errorHandler } from './middleware/errorHandler';
 import { healthRoutes } from './routes/health';
 import { createAuthRoutes } from './routes/auth';
 import { createLobbyRoutes } from './routes/lobby';
+import { createSpectateRoutes } from './routes/spectate';
 import { createHistoryRoutes } from './routes/history';
 import { createStatsRoutes } from './routes/stats';
 import { createPreferencesRoutes } from './routes/preferences';
 import { createAIPresetRoutes } from './routes/aiPresets';
-import { createSpectateRoutes } from './routes/spectate';
-import { errorHandler } from './middleware/errorHandler';
-import { securityHeaders } from './middleware/securityHeaders';
 import { getDb, AppDatabase } from './db/connection';
-import type { AppEnv } from './types/env';
 
-export function createApp(db?: AppDatabase) {
-  const app = new Hono<AppEnv>();
+export function createApp(db?: AppDatabase): Hono {
+  const app = new Hono();
   const database = db ?? getDb();
 
   // Global middleware
@@ -36,7 +35,7 @@ export function createApp(db?: AppDatabase) {
   app.route('/api/me', createAIPresetRoutes(database));
 
   // Production static file serving
-  if (config.nodeEnv !== 'development') {
+  if (config.nodeEnv === 'production') {
     app.use('/*', serveStatic({ root: '../../client/dist' }));
 
     // SPA fallback: non-API GET requests serve index.html
