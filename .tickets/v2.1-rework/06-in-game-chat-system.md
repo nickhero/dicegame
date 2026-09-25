@@ -1,6 +1,6 @@
 # In-Game & Waiting Room Chat System
 
-- **Status**: pending
+- **Status**: done
 - **Priority**: 🟢 Normal
 - **Depends on**: none
 - **Files**:

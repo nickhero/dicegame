@@ -1,6 +1,6 @@
 # Refactor GameScene God Object (2,000+ LOC)
 
-- **Status**: pending
+- **Status**: done
 - **Priority**: 🟡 High
 - **Depends on**: `01-restore-local-gameplay-parity.md`
 - **Files**:

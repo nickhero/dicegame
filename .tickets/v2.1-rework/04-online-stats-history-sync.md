@@ -1,6 +1,6 @@
 # Online Match History & Profile Stats UI Sync
 
-- **Status**: pending
+- **Status**: done
 - **Priority**: 🟡 High
 - **Depends on**: `03-account-registration-login.md`
 - **Files**:

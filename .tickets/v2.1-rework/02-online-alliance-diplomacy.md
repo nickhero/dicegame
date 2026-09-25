@@ -23,20 +23,20 @@ The backend currently registers `game:proposeAlliance` and `game:respondAlliance
 
 ## Tasks
 
-- [ ] **Protocol & Server Events**:
+- [x] **Protocol & Server Events**:
   - Add `game:allianceProposal` server-to-client event to `ServerTypes.ts`: `{ proposalId: string; fromPlayerIndex: number; toPlayerIndex: number; duration: number }`.
   - Add `alliancesEnabled: boolean` to `WireGameState`.
-- [ ] **Proposal Routing in GameEngine / gameHandlers**:
+- [x] **Proposal Routing in GameEngine / gameHandlers**:
   - In `gameHandlers.ts` on `game:proposeAlliance`: if `targetPlayerIndex` is an online human player, emit `game:allianceProposal` directly to that player's socket.
   - If `targetPlayerIndex` is an AI player: evaluate acceptance immediately using `aiWouldAcceptProposal()`, form alliance if accepted, and emit state update.
-- [ ] **Preserve Human Proposals Across Round Ticks**:
+- [x] **Preserve Human Proposals Across Round Ticks**:
   - Update `tickAlliances` or `GameEngine` so human-targeted proposals with remaining duration or response windows are not prematurely cleared on round tick.
-- [ ] **AITurnRunner Online Proposals**:
+- [x] **AITurnRunner Online Proposals**:
   - In `AITurnRunner.processAllianceTick`: when an AI decides to propose an alliance to a human player, emit `game:allianceProposal` to the human player's socket.
-- [ ] **Client UI Integration**:
+- [x] **Client UI Integration**:
   - Listen for `game:allianceProposal` in `GameScene.setupSocketListeners()`.
   - Display `showAllianceProposal(proposal)` dialog.
   - When user clicks Accept/Decline, emit `socketClient.respondAlliance(proposalId, accept)`.
-- [ ] **Tests**:
+- [x] **Tests**:
   - Add server integration tests for human-to-human proposal/acceptance.
   - Add server integration tests for human-to-AI and AI-to-human online proposals.

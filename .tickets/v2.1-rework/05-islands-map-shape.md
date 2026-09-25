@@ -1,6 +1,6 @@
 # Implement Missing 'islands' Map Shape Generator
 
-- **Status**: pending
+- **Status**: done
 - **Priority**: 🟢 Normal
 - **Depends on**: none
 - **Files**:
