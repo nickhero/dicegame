@@ -178,7 +178,7 @@ export class LobbyScene extends Phaser.Scene {
 
     // Buttons row
     const btnY = GAME_HEIGHT - 60;
-    this.createButton(160, btnY, 'CREATE GAME', 0xe94560, 0xff6580, () => {
+    this.createButton(130, btnY, 'CREATE GAME', 0xe94560, 0xff6580, () => {
       this.scene.start('SetupScene', {
         authClient: this.authClient,
         lobbyClient: this.lobbyClient,
@@ -186,16 +186,25 @@ export class LobbyScene extends Phaser.Scene {
       });
     });
 
-    this.createButton(370, btnY, 'REFRESH', 0x0f3460, 0x16213e, () => {
+    this.createButton(300, btnY, 'REFRESH', 0x0f3460, 0x16213e, () => {
       this.refreshGames();
     });
 
-    this.createButton(560, btnY, 'LOGOUT', 0x333355, 0x444477, () => {
+    this.createButton(470, btnY, 'HISTORY', 0x905ad9, 0xb07af9, () => {
+      this.scene.start('HistoryScene', {
+        authClient: this.authClient,
+        lobbyClient: this.lobbyClient,
+        fromLobby: true,
+        activeTab: 'online',
+      });
+    });
+
+    this.createButton(640, btnY, 'LOGOUT', 0x333355, 0x444477, () => {
       this.authClient.logout();
       this.scene.start('LoginScene');
     });
 
-    this.createButton(750, btnY, 'BACK', 0x333355, 0x444477, () => {
+    this.createButton(810, btnY, 'BACK', 0x333355, 0x444477, () => {
       this.scene.start('MenuScene');
     });
 

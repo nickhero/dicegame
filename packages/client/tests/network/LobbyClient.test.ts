@@ -76,4 +76,117 @@ describe('LobbyClient', () => {
     expect(result.id).toBe('new-game-id');
     expect(result.inviteCode).toBe('ABC-123');
   });
+
+  it('fetches user match history with pagination', async () => {
+    const mockHistory = [
+      {
+        id: 'match-1',
+        createdAt: '2026-09-25T12:00:00.000Z',
+        playerCount: 4,
+        turnCount: 25,
+        winnerIndex: 0,
+        userWon: true,
+        userPlayerIndex: 0,
+      },
+    ];
+
+    global.fetch = vi.fn().mockImplementation((url, options) => {
+      expect(url).toContain('/api/me/history?limit=10&offset=20');
+      expect(options.headers.Authorization).toBe(`Bearer ${token}`);
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => mockHistory,
+      });
+    });
+
+    const history = await lobbyClient.getMatchHistory(10, 20);
+    expect(history).toHaveLength(1);
+    expect(history[0].id).toBe('match-1');
+    expect(history[0].userWon).toBe(true);
+  });
+
+  it('fetches match details by ID', async () => {
+    const mockDetail = {
+      id: 'match-1',
+      roomId: 'room-1',
+      recording: {},
+      stats: {},
+      seed: '123',
+      config: {},
+      winnerIndex: 0,
+      turnCount: 20,
+      createdAt: '2026-09-25T12:00:00.000Z',
+      players: [],
+    };
+
+    global.fetch = vi.fn().mockImplementation((url) => {
+      expect(url).toContain('/api/me/history/match-1');
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => mockDetail,
+      });
+    });
+
+    const detail = await lobbyClient.getMatchDetails('match-1');
+    expect(detail.id).toBe('match-1');
+    expect(detail.winnerIndex).toBe(0);
+  });
+
+  it('deletes a match record', async () => {
+    global.fetch = vi.fn().mockImplementation((url, options) => {
+      expect(url).toContain('/api/me/history/match-1');
+      expect(options.method).toBe('DELETE');
+      return Promise.resolve({
+        ok: true,
+        status: 204,
+      });
+    });
+
+    await expect(lobbyClient.deleteMatch('match-1')).resolves.toBeUndefined();
+  });
+
+  it('fetches user stats', async () => {
+    const mockStats = {
+      totalGames: 10,
+      wins: 7,
+      losses: 3,
+      winRate: 70,
+      averageTurnCount: 22,
+      longestWinStreak: 4,
+    };
+
+    global.fetch = vi.fn().mockImplementation((url) => {
+      expect(url).toContain('/api/me/stats');
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => mockStats,
+      });
+    });
+
+    const stats = await lobbyClient.getUserStats();
+    expect(stats.totalGames).toBe(10);
+    expect(stats.winRate).toBe(70);
+  });
+
+  it('fetches leaderboard', async () => {
+    const mockLeaderboard = [
+      { userId: 'u1', displayName: 'Ace', wins: 50, totalGames: 60, winRate: 83 },
+    ];
+
+    global.fetch = vi.fn().mockImplementation((url) => {
+      expect(url).toContain('/api/leaderboard?limit=50');
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => mockLeaderboard,
+      });
+    });
+
+    const leaderboard = await lobbyClient.getLeaderboard(50);
+    expect(leaderboard).toHaveLength(1);
+    expect(leaderboard[0].displayName).toBe('Ace');
+  });
 });

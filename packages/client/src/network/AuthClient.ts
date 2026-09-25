@@ -101,6 +101,10 @@ export class AuthClient {
     return data.token;
   }
 
+  getServerUrl(): string {
+    return this.serverUrl;
+  }
+
   getToken(): string | null {
     return this.token;
   }

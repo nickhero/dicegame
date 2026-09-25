@@ -7,6 +7,55 @@ export class AuthExpiredError extends Error {
   constructor() { super('Session expired, please log in again'); }
 }
 
+export interface UserMatchSummary {
+  id: string;
+  createdAt: string;
+  playerCount: number;
+  turnCount: number | null;
+  winnerIndex: number | null;
+  userWon: boolean;
+  userPlayerIndex: number;
+}
+
+export interface MatchDetailPlayer {
+  userId: string | null;
+  playerIndex: number;
+  isAI: boolean;
+  aiPersonality: string | null;
+  isWinner: boolean;
+  displayName: string | null;
+}
+
+export interface MatchDetailResponse {
+  id: string;
+  roomId: string | null;
+  recording: unknown;
+  stats: unknown;
+  seed: string | null;
+  config: unknown;
+  winnerIndex: number | null;
+  turnCount: number | null;
+  createdAt: string;
+  players: MatchDetailPlayer[];
+}
+
+export interface UserStats {
+  totalGames: number;
+  wins: number;
+  losses: number;
+  winRate: number;
+  averageTurnCount: number;
+  longestWinStreak: number;
+}
+
+export interface LeaderboardEntry {
+  userId: string;
+  displayName: string;
+  wins: number;
+  totalGames: number;
+  winRate: number;
+}
+
 export interface CreateGameRequest {
   name: string;
   maxPlayers: number;
@@ -118,6 +167,51 @@ export class LobbyClient {
       headers: this.headers,
     });
     if (!res.ok) return null;
+    return res.json();
+  }
+
+  async getMatchHistory(limit: number = 20, offset: number = 0): Promise<UserMatchSummary[]> {
+    const res = await fetch(`${this.serverUrl}/api/me/history?limit=${limit}&offset=${offset}`, {
+      headers: this.headers,
+    });
+    if (res.status === 401) throw new AuthExpiredError();
+    if (!res.ok) throw new Error('Failed to fetch match history');
+    return res.json();
+  }
+
+  async getMatchDetails(matchId: string): Promise<MatchDetailResponse> {
+    const res = await fetch(`${this.serverUrl}/api/me/history/${matchId}`, {
+      headers: this.headers,
+    });
+    if (res.status === 401) throw new AuthExpiredError();
+    if (!res.ok) throw new Error('Match not found');
+    return res.json();
+  }
+
+  async deleteMatch(matchId: string): Promise<void> {
+    const res = await fetch(`${this.serverUrl}/api/me/history/${matchId}`, {
+      method: 'DELETE',
+      headers: this.headers,
+    });
+    if (res.status === 401) throw new AuthExpiredError();
+    if (!res.ok) throw new Error('Failed to delete match');
+  }
+
+  async getUserStats(): Promise<UserStats> {
+    const res = await fetch(`${this.serverUrl}/api/me/stats`, {
+      headers: this.headers,
+    });
+    if (res.status === 401) throw new AuthExpiredError();
+    if (!res.ok) throw new Error('Failed to fetch user stats');
+    return res.json();
+  }
+
+  async getLeaderboard(limit: number = 100): Promise<LeaderboardEntry[]> {
+    const res = await fetch(`${this.serverUrl}/api/leaderboard?limit=${limit}`, {
+      headers: this.headers,
+    });
+    if (res.status === 401) throw new AuthExpiredError();
+    if (!res.ok) throw new Error('Failed to fetch leaderboard');
     return res.json();
   }
 

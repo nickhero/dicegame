@@ -25,18 +25,18 @@ However, `packages/client` never connects to any of these endpoints:
 
 ## Tasks
 
-- [ ] **LobbyClient / ApiClient Expansion**:
+- [x] **LobbyClient / ApiClient Expansion**:
   - Add API methods in `LobbyClient.ts`:
     - `getMatchHistory(page?: number, limit?: number)`
     - `getMatchDetails(matchId: string)`
     - `getUserStats()`
-- [ ] **HistoryScene Multi-Tab Support**:
+- [x] **HistoryScene Multi-Tab Support**:
   - In `HistoryScene.ts`: add a toggle/tab bar between **"Local Matches"** (existing localStorage data) and **"Online Matches"** (server `/api/me/history`).
   - Render server match history rows: Date, Winner, Number of players, Turns, Result (Win/Loss).
   - Add "Delete" button wired to `DELETE /api/me/history/:id`.
-- [ ] **Player Stats Profile Modal in MenuScene**:
+- [x] **Player Stats Profile Modal in MenuScene**:
   - Add a "PROFILE / STATS" button in `MenuScene.ts` when authenticated.
   - Fetch and display stats card: Games Played, Wins, Losses, Win Rate %, Total Territories Captured.
-- [ ] **Tests**:
+- [x] **Tests**:
   - Add tests for `LobbyClient` history and stats fetch methods.
   - Verify pagination and empty states in HistoryScene.
