@@ -203,6 +203,7 @@ export interface ServerToClientEvents {
   'game:gameOver': (data: GameOverPayload) => void;
   'game:chat': (data: {
     playerIndex: number;
+    senderName: string;
     message: string;
     timestamp: string;
   }) => void;

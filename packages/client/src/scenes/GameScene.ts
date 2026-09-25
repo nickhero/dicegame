@@ -92,6 +92,15 @@ export class GameScene extends Phaser.Scene {
   private undoSnapshot: ReturnType<typeof createSnapshot> | null = null;
   private undoUsedThisTurn = false;
   private lastAllianceTickTurn = -1;
+  // In-Game Chat state
+  private isChatOpen = false;
+  private chatInput = "";
+  private chatContainer: Phaser.GameObjects.Container | null = null;
+  private chatBg: Phaser.GameObjects.Graphics | null = null;
+  private chatDisplayText: Phaser.GameObjects.Text | null = null;
+  private chatCursorVisible = true;
+  private chatCursorTimer: Phaser.Time.TimerEvent | null = null;
+  private chatTriggerBtn: Phaser.GameObjects.Container | null = null;
 
   constructor() {
     super('GameScene');
@@ -306,6 +315,7 @@ export class GameScene extends Phaser.Scene {
       this.setupConnectionStateListener();
       this.uiRenderer.setConnectionState(this.socketClient!.state);
       this.updateOnlineStatus();
+      this.createChatUI();
       this.eventLog.addEvent('🌐 Online game started', 0x44cc44);
       this.eventLog.addEvent(
         `Turn ${this.gameState.turnNumber} — ${this.gameState.players[this.gameState.currentPlayerIndex]?.name ?? 'Unknown'}'s turn`,
@@ -487,6 +497,13 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
+    this.socketClient.on('game:chat', (data) => {
+      const color = data.playerIndex >= 0 && data.playerIndex < PLAYER_COLORS.length
+        ? PLAYER_COLORS[data.playerIndex]
+        : 0x44ddff;
+      this.eventLog.addEvent(`💬 [${data.senderName}]: ${data.message}`, color);
+    });
+
     this.socketClient.on('game:error', (error: GameError) => {
       switch (error.code) {
         case GameErrorCode.GAME_NOT_YOUR_TURN:
@@ -508,6 +525,33 @@ export class GameScene extends Phaser.Scene {
   }
 
   private handleKeyDown(event: KeyboardEvent): void {
+    if (this.isChatOpen) {
+      if (event.key === "Escape") {
+        this.closeChatInput();
+        return;
+      }
+      if (event.key === "Enter") {
+        this.sendChatMessage();
+        return;
+      }
+      if (event.key === "Backspace") {
+        this.chatInput = this.chatInput.slice(0, -1);
+        this.updateChatInputDisplay();
+        return;
+      }
+      if (event.key.length === 1 && this.chatInput.length < 140) {
+        this.chatInput += event.key;
+        this.updateChatInputDisplay();
+        return;
+      }
+      return;
+    }
+
+    if (event.key === "Enter" && this.isOnlineGame && !this.isDialogOpen) {
+      this.openChatInput();
+      return;
+    }
+
     const key = event.key.toUpperCase();
 
     // H / ? always toggles help overlay (even when it's open)
@@ -2193,6 +2237,122 @@ export class GameScene extends Phaser.Scene {
           this.territoryEffects.hideAttackLine();
         }
       }
+    }
+  }
+
+  private createChatUI(): void {
+    if (this.chatTriggerBtn) return;
+
+    const btnX = 220;
+    const btnY = GAME_HEIGHT - 38;
+    this.chatTriggerBtn = this.add.container(btnX, btnY).setDepth(450);
+
+    const btnBg = this.add.graphics();
+    btnBg.fillStyle(0x0f3460, 0.85);
+    btnBg.fillRoundedRect(0, 0, 130, 28, 6);
+    btnBg.lineStyle(1, 0x4466aa, 0.8);
+    btnBg.strokeRoundedRect(0, 0, 130, 28, 6);
+    this.chatTriggerBtn.add(btnBg);
+
+    const btnText = this.add.text(65, 14, "💬 Chat (Enter)", {
+      fontSize: "11px",
+      color: "#ffffff",
+      fontFamily: "monospace",
+      fontStyle: "bold",
+    }).setOrigin(0.5);
+    this.chatTriggerBtn.add(btnText);
+
+    const hitZone = this.add.zone(65, 14, 130, 28)
+      .setInteractive({ useHandCursor: true })
+      .on("pointerdown", () => this.openChatInput());
+    this.chatTriggerBtn.add(hitZone);
+
+    this.chatContainer = this.add.container(btnX, btnY).setDepth(500).setVisible(false);
+
+    this.chatBg = this.add.graphics();
+    this.chatBg.fillStyle(0x0a0c1a, 0.95);
+    this.chatBg.fillRoundedRect(0, 0, 480, 32, 6);
+    this.chatBg.lineStyle(2, 0xe94560, 1);
+    this.chatBg.strokeRoundedRect(0, 0, 480, 32, 6);
+    this.chatContainer.add(this.chatBg);
+
+    this.chatDisplayText = this.add.text(12, 16, "", {
+      fontSize: "12px",
+      color: "#ffffff",
+      fontFamily: "monospace",
+    }).setOrigin(0, 0.5);
+    this.chatContainer.add(this.chatDisplayText);
+
+    const sendBg = this.add.graphics();
+    sendBg.fillStyle(0xe94560, 1);
+    sendBg.fillRoundedRect(415, 4, 55, 24, 4);
+    this.chatContainer.add(sendBg);
+
+    const sendText = this.add.text(442, 16, "SEND", {
+      fontSize: "11px",
+      color: "#ffffff",
+      fontFamily: "monospace",
+      fontStyle: "bold",
+    }).setOrigin(0.5);
+    this.chatContainer.add(sendText);
+
+    const sendZone = this.add.zone(442, 16, 55, 24)
+      .setInteractive({ useHandCursor: true })
+      .on("pointerdown", () => this.sendChatMessage());
+    this.chatContainer.add(sendZone);
+
+    const closeText = this.add.text(495, 16, "✕", {
+      fontSize: "14px",
+      color: "#8888aa",
+      fontFamily: "monospace",
+      fontStyle: "bold",
+    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+    closeText.on("pointerdown", () => this.closeChatInput());
+    this.chatContainer.add(closeText);
+
+    this.chatCursorTimer = this.time.addEvent({
+      delay: 500,
+      loop: true,
+      callback: () => {
+        this.chatCursorVisible = !this.chatCursorVisible;
+        if (this.isChatOpen) {
+          this.updateChatInputDisplay();
+        }
+      },
+    });
+  }
+
+  private openChatInput(): void {
+    if (!this.isOnlineGame) return;
+    this.isChatOpen = true;
+    this.chatInput = "";
+    this.chatContainer?.setVisible(true);
+    this.chatTriggerBtn?.setVisible(false);
+    this.updateChatInputDisplay();
+  }
+
+  private closeChatInput(): void {
+    this.isChatOpen = false;
+    this.chatInput = "";
+    this.chatContainer?.setVisible(false);
+    this.chatTriggerBtn?.setVisible(true);
+  }
+
+  private sendChatMessage(): void {
+    const trimmed = this.chatInput.trim();
+    if (trimmed.length > 0 && this.socketClient) {
+      this.socketClient.sendChat(trimmed);
+    }
+    this.closeChatInput();
+  }
+
+  private updateChatInputDisplay(): void {
+    if (!this.chatDisplayText) return;
+    const cursor = this.chatCursorVisible ? "|" : "";
+    if (this.chatInput.length === 0) {
+      this.chatDisplayText.setText(`💬 Type message... (Enter to send)${cursor}`).setColor("#777799");
+    } else {
+      this.chatDisplayText.setText(`💬 ${this.chatInput}${cursor}`).setColor("#ffffff");
     }
   }
 }

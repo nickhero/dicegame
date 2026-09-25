@@ -35,4 +35,31 @@ describe('SocketClient', () => {
     await expect(client.usePowerUp('reinforce', 0)).rejects.toThrow('Not connected');
     await expect(client.proposeAlliance(1)).rejects.toThrow('Not connected');
   });
+  it('emits game:chat through sendChat when socket is connected', () => {
+    const mockSocket = {
+      emit: vi.fn(),
+      on: vi.fn(),
+      off: vi.fn(),
+    };
+    (client as any).socket = mockSocket;
+
+    client.sendChat('Hello world!');
+    expect(mockSocket.emit).toHaveBeenCalledWith('game:chat', { message: 'Hello world!' });
+  });
+
+  it('registers and removes game:chat listeners', () => {
+    const mockSocket = {
+      emit: vi.fn(),
+      on: vi.fn(),
+      off: vi.fn(),
+    };
+    (client as any).socket = mockSocket;
+
+    const handler = vi.fn();
+    client.on('game:chat', handler);
+    expect(mockSocket.on).toHaveBeenCalledWith('game:chat', handler);
+
+    client.off('game:chat', handler);
+    expect(mockSocket.off).toHaveBeenCalledWith('game:chat', handler);
+  });
 });

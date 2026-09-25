@@ -651,4 +651,67 @@ describe('Game Action WebSocket Handlers', () => {
       expect(typeof p.connected).toBe('boolean');
     });
   });
+  describe('game:chat', () => {
+    it('broadcasts valid chat message to room', () => {
+      const socket = createMockSocket({ userId: 'user-0', userName: 'Alice', gameId: roomId });
+      const ns = createMockNamespace([socket]);
+      setupGameActionHandlers(socket as never, ns as never, engine);
+
+      const handler = getHandler(socket, 'game:chat');
+      expect(handler).toBeDefined();
+
+      handler!({ message: 'Good luck everyone!' });
+
+      expect(ns.to).toHaveBeenCalledWith(`game:${roomId}`);
+      expect(ns._roomEmitter.emit).toHaveBeenCalledWith(
+        'game:chat',
+        expect.objectContaining({
+          playerIndex: 0,
+          senderName: 'Player 0',
+          message: 'Good luck everyone!',
+          timestamp: expect.any(String),
+        }),
+      );
+    });
+
+    it('sanitizes HTML characters and trims message', () => {
+      const socket = createMockSocket({ userId: 'user-0', userName: 'Alice', gameId: roomId });
+      const ns = createMockNamespace([socket]);
+      setupGameActionHandlers(socket as never, ns as never, engine);
+
+      const handler = getHandler(socket, 'game:chat')!;
+      handler({ message: '  <script>alert(1)</script> & fun  ' });
+
+      expect(ns._roomEmitter.emit).toHaveBeenCalledWith(
+        'game:chat',
+        expect.objectContaining({
+          message: '&lt;script&gt;alert(1)&lt;/script&gt; &amp; fun',
+        }),
+      );
+    });
+
+    it('ignores empty or whitespace-only messages', () => {
+      const socket = createMockSocket({ userId: 'user-0', userName: 'Alice', gameId: roomId });
+      const ns = createMockNamespace([socket]);
+      setupGameActionHandlers(socket as never, ns as never, engine);
+
+      const handler = getHandler(socket, 'game:chat')!;
+      handler({ message: '   ' });
+
+      expect(ns._roomEmitter.emit).not.toHaveBeenCalled();
+    });
+
+    it('enforces rate limiting of 2 messages per second', () => {
+      const socket = createMockSocket({ userId: 'user-0', userName: 'Alice', gameId: roomId });
+      const ns = createMockNamespace([socket]);
+      setupGameActionHandlers(socket as never, ns as never, engine);
+
+      const handler = getHandler(socket, 'game:chat')!;
+      handler({ message: 'msg 1' });
+      handler({ message: 'msg 2' });
+      handler({ message: 'msg 3' }); // Should be rate limited
+
+      expect(ns._roomEmitter.emit).toHaveBeenCalledTimes(2);
+    });
+  });
 });

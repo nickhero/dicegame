@@ -1,3 +1,5 @@
+import { eq } from 'drizzle-orm';
+import { gamePlayers } from '../db/schema';
 import type { Namespace, Socket } from 'socket.io';
 import type { GameErrorCode } from '@dicewars/shared';
 import { GameStats } from '@dicewars/shared';
@@ -33,7 +35,7 @@ export function setupGameActionHandlers(
   socket: Socket,
   gameNamespace: Namespace,
   gameEngine: GameEngine,
-  db: AppDatabase,
+  db?: AppDatabase,
   aiTurnRunner?: AITurnRunner,
   turnTimer?: TurnTimer,
 ): void {
@@ -356,6 +358,61 @@ export function setupGameActionHandlers(
     } catch (err) {
       ack({ success: false, error: toGameError(err) });
     }
+  });
+
+  // Rate limiting for chat: max 2 messages per second
+  const CHAT_RATE_LIMIT = 2;
+  const CHAT_RATE_WINDOW_MS = 1000;
+  let chatTimestamps: number[] = [];
+
+  socket.on("game:chat", (data: { message?: string }) => {
+    const gameId = socket.data.gameId;
+    if (!gameId) return;
+
+    const now = Date.now();
+    chatTimestamps = chatTimestamps.filter((t) => now - t < CHAT_RATE_WINDOW_MS);
+    if (chatTimestamps.length >= CHAT_RATE_LIMIT) return;
+    chatTimestamps.push(now);
+
+    const rawMessage = data?.message;
+    if (typeof rawMessage !== "string") return;
+    const cleanMessage = rawMessage.trim().slice(0, 140);
+    if (cleanMessage.length === 0) return;
+
+    // Sanitize string against script injection / html
+    const sanitized = cleanMessage
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+
+    const game = gameEngine.getGame(gameId);
+    let playerIndex = -1;
+    let senderName = socket.data.userName ?? "Player";
+
+    if (game && socket.data.userId) {
+      const idx = game.playerMap.get(socket.data.userId);
+      if (idx !== undefined) {
+        playerIndex = idx;
+        senderName = game.state.players[playerIndex]?.name ?? senderName;
+      }
+    } else if (socket.data.userId && db) {
+      const playerRows = db
+        .select()
+        .from(gamePlayers)
+        .where(eq(gamePlayers.gameId, gameId))
+        .all();
+      const mySlot = playerRows.find((p) => p.userId === socket.data.userId);
+      if (mySlot) {
+        playerIndex = mySlot.slotIndex;
+      }
+    }
+
+    gameNamespace.to(`game:${gameId}`).emit("game:chat", {
+      playerIndex,
+      senderName,
+      message: sanitized,
+      timestamp: new Date().toISOString(),
+    });
   });
 }
 
