@@ -62,4 +62,50 @@ describe('AuthClient', () => {
     expect(authenticatedClient.getToken()).toBeNull();
     expect(localStorage.getItem('dicewars_token')).toBeNull();
   });
+
+  it('successfully registers and saves credentials', async () => {
+    const mockResponse = {
+      token: 'registered-jwt-token-456',
+      user: {
+        id: 'user_reg_1',
+        name: 'CommanderAlice',
+        isGuest: false,
+      },
+    };
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => mockResponse,
+    });
+
+    const result = await client.register('CommanderAlice', 'secretpass123');
+
+    expect(result.token).toBe('registered-jwt-token-456');
+    expect(client.isAuthenticated()).toBe(true);
+    expect(client.getUser()?.isGuest).toBe(false);
+    expect(localStorage.getItem('dicewars_token')).toBe('registered-jwt-token-456');
+  });
+
+  it('successfully logs in and saves credentials', async () => {
+    const mockResponse = {
+      token: 'login-jwt-token-789',
+      user: {
+        id: 'user_reg_1',
+        name: 'CommanderAlice',
+        isGuest: false,
+      },
+    };
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => mockResponse,
+    });
+
+    const result = await client.login('CommanderAlice', 'secretpass123');
+
+    expect(result.token).toBe('login-jwt-token-789');
+    expect(client.isAuthenticated()).toBe(true);
+    expect(client.getUser()?.isGuest).toBe(false);
+    expect(localStorage.getItem('dicewars_token')).toBe('login-jwt-token-789');
+  });
 });

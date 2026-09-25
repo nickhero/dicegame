@@ -1,6 +1,6 @@
 # User Registration & Password Authentication
 
-- **Status**: pending
+- **Status**: in-progress
 - **Priority**: 🟡 High
 - **Depends on**: none
 - **Files**:

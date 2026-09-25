@@ -42,6 +42,44 @@ export class AuthClient {
     return data;
   }
 
+  async register(username: string, password: string): Promise<AuthResponse> {
+    const res = await fetch(`${this.serverUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error?.message || 'Registration failed');
+    }
+
+    const data: AuthResponse = await res.json();
+    this.token = data.token;
+    this.user = data.user;
+    this.saveToStorage();
+    return data;
+  }
+
+  async login(username: string, password: string): Promise<AuthResponse> {
+    const res = await fetch(`${this.serverUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error?.message || 'Login failed');
+    }
+
+    const data: AuthResponse = await res.json();
+    this.token = data.token;
+    this.user = data.user;
+    this.saveToStorage();
+    return data;
+  }
+
   async refreshToken(): Promise<string> {
     if (!this.token) throw new Error('No token to refresh');
 
