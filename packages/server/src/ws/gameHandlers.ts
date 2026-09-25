@@ -281,10 +281,45 @@ export function setupGameActionHandlers(
     }
 
     try {
-      gameEngine.proposeAlliance(gameId, socket.data.userId, targetPlayerIndex);
-
+      const result = gameEngine.proposeAlliance(gameId, socket.data.userId, targetPlayerIndex);
       const game = gameEngine.getGame(gameId)!;
-      emitStateUpdate(gameId, game);
+
+      if (result.targetIsAI) {
+        if (result.aiAccepted) {
+          emitStateUpdate(gameId, game);
+          return ack({ success: true });
+        } else {
+          const targetName = game.state.players[targetPlayerIndex]?.name ?? "AI";
+          return ack({
+            success: false,
+            error: {
+              code: "GAME_ALLIANCE_INVALID_TARGET" as GameErrorCode,
+              message: `${targetName} declined your alliance proposal`,
+            },
+          });
+        }
+      }
+
+      // Target is human
+      if (result.formed) {
+        emitStateUpdate(gameId, game);
+      } else {
+        // Emit proposal notification to the recipient socket
+        for (const [, s] of gameNamespace.sockets) {
+          if (s.rooms.has(`game:${gameId}`) && s.data.userId) {
+            const playerIndex = game.playerMap.get(s.data.userId as string);
+            if (playerIndex === targetPlayerIndex) {
+              s.emit("game:allianceProposal", {
+                proposalId: String(result.fromPlayer),
+                fromPlayerIndex: result.fromPlayer,
+                toPlayerIndex: result.toPlayer,
+                duration: result.duration,
+              });
+            }
+          }
+        }
+        emitStateUpdate(gameId, game);
+      }
 
       ack({ success: true });
     } catch (err) {

@@ -476,6 +476,48 @@ describe('Game Action WebSocket Handlers', () => {
       expect(ack.mock.calls[0][0].success).toBe(false);
       expect(ack.mock.calls[0][0].error.code).toBe('CONNECTION_NOT_IN_GAME');
     });
+
+    it('notifies target player socket when proposed to human', () => {
+      engine.destroyGame(roomId);
+      const config = makeConfig({ seed: '42', alliances: true });
+      engine.createGame(roomId, config, makeSlots(4, 2));
+
+      const socket0 = createMockSocket({ userId: 'user-0', userName: 'Alice', gameId: roomId });
+      const socket1 = createMockSocket({ userId: 'user-1', userName: 'Bob', gameId: roomId });
+      const ns = createMockNamespace([socket0, socket1]);
+      setupGameActionHandlers(socket0 as never, ns as never, engine);
+
+      const ack = vi.fn();
+      getHandler(socket0, 'game:proposeAlliance')!({ targetPlayerIndex: 1 }, ack);
+
+      expect(ack.mock.calls[0][0].success).toBe(true);
+      const proposalCall = socket1.emit.mock.calls.find((c: unknown[]) => c[0] === 'game:allianceProposal');
+      expect(proposalCall).toBeDefined();
+      expect(proposalCall[1]).toEqual({
+        proposalId: '0',
+        fromPlayerIndex: 0,
+        toPlayerIndex: 1,
+        duration: 5,
+      });
+    });
+
+    it('evaluates AI acceptance and forms alliance immediately if accepted', () => {
+      engine.destroyGame(roomId);
+      const config = makeConfig({ seed: '42', alliances: true });
+      engine.createGame(roomId, config, makeSlots(4, 1)); // 1 human, 3 AIs
+
+      const socket0 = createMockSocket({ userId: 'user-0', userName: 'Alice', gameId: roomId });
+      const ns = createMockNamespace([socket0]);
+      setupGameActionHandlers(socket0 as never, ns as never, engine);
+
+      const ack = vi.fn();
+      // Target player 1 (balanced AI, willingness 0.4 > 0.3 => accepts)
+      getHandler(socket0, 'game:proposeAlliance')!({ targetPlayerIndex: 1 }, ack);
+
+      expect(ack.mock.calls[0][0].success).toBe(true);
+      const activeGame = engine.getGame(roomId)!;
+      expect(activeGame.state.allianceState!.alliances.length).toBe(1);
+    });
   });
 
   describe('game:respondAlliance', () => {
@@ -501,6 +543,27 @@ describe('Game Action WebSocket Handlers', () => {
 
       expect(ack.mock.calls[0][0].success).toBe(false);
       expect(ack.mock.calls[0][0].error.code).toBe('GAME_ALLIANCE_PROPOSAL_NOT_FOUND');
+    });
+
+    it('accepts pending proposal and forms alliance', () => {
+      engine.destroyGame(roomId);
+      const config = makeConfig({ seed: '42', alliances: true });
+      engine.createGame(roomId, config, makeSlots(4, 2));
+
+      // Player 0 proposes to Player 1
+      engine.proposeAlliance(roomId, 'user-0', 1);
+
+      const socket1 = createMockSocket({ userId: 'user-1', userName: 'Bob', gameId: roomId });
+      const ns = createMockNamespace([socket1]);
+      setupGameActionHandlers(socket1 as never, ns as never, engine);
+
+      const ack = vi.fn();
+      getHandler(socket1, 'game:respondAlliance')!({ proposalId: '0', accept: true }, ack);
+
+      expect(ack.mock.calls[0][0].success).toBe(true);
+      const activeGame = engine.getGame(roomId)!;
+      expect(activeGame.state.allianceState!.alliances.length).toBe(1);
+      expect(activeGame.state.allianceState!.proposals.length).toBe(0);
     });
   });
 

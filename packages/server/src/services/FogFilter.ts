@@ -101,6 +101,7 @@ export function serializeFullState(game: ActiveGame): WireGameState {
     turnNumber: state.turnNumber,
     phase: state.phase === 'selectingDefender' ? 'selectingDefender' : 'selectingAttacker',
     alliances: buildAlliances(state),
+    alliancesEnabled: !!game.config.alliances,
     powerUpLocations: buildPowerUpLocations(state.territories),
     gameOver: game.status === 'finished',
     winner: state.winner,
@@ -159,6 +160,7 @@ export function filterStateForPlayer(
     turnNumber: state.turnNumber,
     phase: state.phase === 'selectingDefender' ? 'selectingDefender' : 'selectingAttacker',
     alliances: filterAlliancesForPlayer(state, playerIndex, game.config.alliances),
+    alliancesEnabled: !!game.config.alliances,
     powerUpLocations: state.territories
       .filter((t) => t.powerUp && visibleSet.has(t.id))
       .map((t) => ({ territoryId: t.id, type: t.powerUp! })),

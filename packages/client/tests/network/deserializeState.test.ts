@@ -33,6 +33,7 @@ describe('deserializeWireState', () => {
     alliances: [
       { player1Index: 0, player2Index: 1, formedOnTurn: 1 },
     ],
+    alliancesEnabled: true,
     powerUpLocations: [
       { territoryId: 0, type: 'reinforce' },
     ],
@@ -94,5 +95,16 @@ describe('deserializeWireState', () => {
 
     expect(state.phase).toBe('gameOver');
     expect(state.winner).toBe(0);
+  });
+
+  it('initializes allianceState when alliancesEnabled is true even if alliances is empty', () => {
+    const wire: WireGameState = {
+      ...mockWireState,
+      alliances: [],
+      alliancesEnabled: true,
+    };
+    const state = deserializeWireState(wire);
+    expect(state.allianceState).toBeDefined();
+    expect(state.allianceState?.alliances).toHaveLength(0);
   });
 });

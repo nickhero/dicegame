@@ -16,6 +16,7 @@ export interface AllianceProposal {
   fromPlayer: number;
   toPlayer: number;
   duration: number;
+  createdTurn?: number;
 }
 
 export interface AllianceState {
@@ -166,8 +167,16 @@ export function tickAlliances(
   }
   allianceState.alliances = remaining;
 
-  // Clear expired proposals
-  allianceState.proposals = [];
+  // Retain unexpired proposals with createdTurn (e.g. human proposals that have not timed out)
+  const retainedProposals: AllianceProposal[] = [];
+  for (const p of allianceState.proposals) {
+    const alive = gameState.players[p.fromPlayer]?.isAlive && gameState.players[p.toPlayer]?.isAlive;
+    if (!alive) continue;
+    if (p.createdTurn !== undefined && gameState.turnNumber <= p.createdTurn + gameState.players.length * 2) {
+      retainedProposals.push(p);
+    }
+  }
+  allianceState.proposals = retainedProposals;
 
   // AI proposal generation
   for (const player of gameState.players) {
@@ -242,14 +251,15 @@ export function generateAIProposal(
     }
   }
 
-  // Also consider proposing to human (player 0)
-  if (playerId !== 0 && gameState.players[0]?.isHuman) {
-    if (bestTarget === null || rng.next() < 0.3) {
-      const human = gameState.players[0];
-      if (human.isAlive && !areAllied(allianceState, playerId, 0)) {
-        const humanRep = allianceState.reputation.get(0) ?? 50;
+  // Also consider proposing to human players
+  const humanPlayers = gameState.players.filter(p => p.isHuman && p.isAlive && p.id !== playerId);
+  if (humanPlayers.length > 0 && (bestTarget === null || rng.next() < 0.3)) {
+    for (const human of humanPlayers) {
+      if (!areAllied(allianceState, playerId, human.id)) {
+        const humanRep = allianceState.reputation.get(human.id) ?? 50;
         if (humanRep >= MIN_REPUTATION_FOR_PROPOSAL) {
-          bestTarget = 0;
+          bestTarget = human.id;
+          break;
         }
       }
     }
@@ -299,7 +309,7 @@ export function aiWouldBreakAlliance(
   if (personality === 'aggressive') {
     // Aggressive breaks if they're dominant (>40% of territories)
     const myTerritories = gameState.territories.filter(t => t.owner === attackerId).length;
-    return myTerritories > gameState.territories.length * 0.4;
+    return (myTerritories / gameState.territories.length) > 0.4;
   }
   return false;
 }
@@ -316,11 +326,12 @@ export function cleanupDeadPlayerAlliances(allianceState: AllianceState, playerI
 
 function getAllianceWillingness(personality: PersonalityType): number {
   switch (personality) {
-    case 'cautious': return 0.7;
-    case 'balanced': return 0.4;
-    case 'aggressive': return 0.2;
-    case 'reckless': return 0.1;
-    case 'expansionist': return 0.5;
-    case 'turtle': return 0.8;
+    case "cautious": return 0.7;
+    case "turtle": return 0.8;
+    case "expansionist": return 0.5;
+    case "balanced": return 0.4;
+    case "aggressive": return 0.2;
+    case "reckless": return 0.1;
+    default: return 0.3;
   }
 }

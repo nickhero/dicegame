@@ -33,6 +33,7 @@ import type {
   InstantBatchPayload,
   GameOverPayload,
   PlayerConnectionPayload,
+  AllianceProposalPayload,
   WireGameState,
   WirePowerUp,
   GameError,
@@ -469,6 +470,14 @@ export class GameScene extends Phaser.Scene {
       if (player) {
         this.eventLog.addEvent(`🔌 ${player.name} disconnected (${data.graceSeconds ?? 60}s grace)`, 0xff8844);
       }
+    });
+
+    this.socketClient.on('game:allianceProposal', (data: AllianceProposalPayload) => {
+      this.showAllianceProposal({
+        fromPlayer: data.fromPlayerIndex,
+        toPlayer: data.toPlayerIndex,
+        duration: data.duration,
+      });
     });
 
     this.socketClient.on('game:playerReconnected', (data: PlayerConnectionPayload) => {

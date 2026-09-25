@@ -332,7 +332,9 @@ export class AITurnRunner {
     // Process AI responses to new proposals
     for (const proposal of tickResult.newProposals) {
       const targetPlayer = state.players[proposal.toPlayer];
-      if (!targetPlayer.isHuman && targetPlayer.isAlive) {
+      if (!targetPlayer || !targetPlayer.isAlive) continue;
+
+      if (!targetPlayer.isHuman) {
         if (aiWouldAcceptProposal(state.allianceState, state, proposal)) {
           formAlliance(state.allianceState, proposal.fromPlayer, proposal.toPlayer, state.turnNumber);
           game.recorder.recordAction({
@@ -341,6 +343,21 @@ export class AITurnRunner {
             player2: proposal.toPlayer,
             duration: proposal.duration,
           });
+        }
+      } else {
+        // AI proposed an alliance to a human player — notify the human via WebSocket
+        for (const [, socket] of this.gameNamespace.sockets) {
+          if (socket.rooms.has(`game:${gameId}`) && socket.data.userId) {
+            const playerIndex = game.playerMap.get(socket.data.userId as string);
+            if (playerIndex === proposal.toPlayer) {
+              socket.emit("game:allianceProposal", {
+                proposalId: String(proposal.fromPlayer),
+                fromPlayerIndex: proposal.fromPlayer,
+                toPlayerIndex: proposal.toPlayer,
+                duration: proposal.duration,
+              });
+            }
+          }
         }
       }
     }

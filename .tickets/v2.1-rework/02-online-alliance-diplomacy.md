@@ -1,15 +1,16 @@
 # Complete Online Alliance Diplomacy System
 
-- **Status**: pending
+- **Status**: done
 - **Priority**: 🔴 Critical
 - **Depends on**: none
 - **Files**:
   - `packages/shared/src/game/ServerTypes.ts`
   - `packages/server/src/services/GameEngine.ts`
   - `packages/server/src/services/AITurnRunner.ts`
-  - `packages/server/src/services/FogFilter.ts`
   - `packages/server/src/ws/gameHandlers.ts`
   - `packages/client/src/scenes/GameScene.ts`
+  - `packages/client/src/network/deserializeState.ts`
+  - `packages/client/src/network/SocketClient.ts`
 
 ## Description
 
@@ -24,7 +25,7 @@ The backend currently registers `game:proposeAlliance` and `game:respondAlliance
 
 - [ ] **Protocol & Server Events**:
   - Add `game:allianceProposal` server-to-client event to `ServerTypes.ts`: `{ proposalId: string; fromPlayerIndex: number; toPlayerIndex: number; duration: number }`.
-  - Add `game:allianceFormed`, `game:allianceBroken`, and `game:allianceExpired` events or include proposal lists in per-player filtered `WireGameState`.
+  - Add `alliancesEnabled: boolean` to `WireGameState`.
 - [ ] **Proposal Routing in GameEngine / gameHandlers**:
   - In `gameHandlers.ts` on `game:proposeAlliance`: if `targetPlayerIndex` is an online human player, emit `game:allianceProposal` directly to that player's socket.
   - If `targetPlayerIndex` is an AI player: evaluate acceptance immediately using `aiWouldAcceptProposal()`, form alliance if accepted, and emit state update.
