@@ -22,7 +22,7 @@ This dense coupling was the direct cause of the regressions in single-player mod
 
 ## Tasks
 
-- [ ] **Define Common GameController Interface**:
+- [x] **Define Common GameController Interface**:
   - Create `GameController` interface defining common player actions:
     - `attack(fromId, toId)`
     - `endTurn()`
@@ -31,12 +31,12 @@ This dense coupling was the direct cause of the regressions in single-player mod
     - `undo()`
     - `proposeAlliance(targetIndex)`
     - `respondAlliance(proposalId, accept)`
-- [ ] **Extract LocalGameController**:
+- [x] **Extract LocalGameController**:
   - Encapsulate local game loop, AI turn chaining, dice distribution, local snapshots/undo, and local alliance resolution into `LocalGameController`.
   - Expose callbacks/observables for state updates, battle animations, and events.
-- [ ] **Extract OnlineGameController**:
+- [x] **Extract OnlineGameController**:
   - Encapsulate `SocketClient` listener setup, message routing, intent dispatch, reconnect management, and turn timer into `OnlineGameController`.
-- [ ] **Slim Down GameScene**:
+- [x] **Slim Down GameScene**:
   - Reduce `GameScene` to a presentation coordinator: delegating user input to `this.controller`, and rendering visual updates via `MapRenderer`, `UIRenderer`, `BattleAnimator`, and `TerritoryEffects`.
-- [ ] **Verification**:
+- [x] **Verification**:
   - Ensure zero regressions in both local offline matches and online multiplayer rooms.

@@ -50,6 +50,9 @@ import { EventLog } from '../rendering/EventLog';
 import { TerritoryEffects } from '../rendering/TerritoryEffects';
 import { SoundManager } from '../rendering/SoundManager';
 import { ToastManager } from '../rendering/ToastManager';
+import type { IGameController } from '../controllers/GameController';
+import { LocalGameController } from '../controllers/LocalGameController';
+import { OnlineGameController } from '../controllers/OnlineGameController';
 
 export class GameScene extends Phaser.Scene {
   private gameState!: GameState;
@@ -92,6 +95,7 @@ export class GameScene extends Phaser.Scene {
   private undoSnapshot: ReturnType<typeof createSnapshot> | null = null;
   private undoUsedThisTurn = false;
   private lastAllianceTickTurn = -1;
+  private controller?: IGameController;
   // In-Game Chat state
   private isChatOpen = false;
   private chatInput = "";
@@ -310,7 +314,46 @@ export class GameScene extends Phaser.Scene {
     }).setDepth(100);
 
     // Setup WebSocket listeners for online games
-    if (this.isOnlineGame) {
+    if (this.isOnlineGame && this.socketClient) {
+      this.controller = new OnlineGameController(
+        this.socketClient,
+        this.data.get('initialState') || {
+          turnNumber: this.gameState.turnNumber,
+          currentPlayerIndex: this.gameState.currentPlayerIndex,
+          phase: this.gameState.phase as any,
+          gameOver: false,
+          winner: null,
+          alliancesEnabled: !!this.gameState.allianceState,
+          powerUpsEnabled: !!this.gameState.powerUpsEnabled,
+          localPlayerIndex: this.localPlayerIndex,
+          players: [],
+          territories: [],
+          alliances: [],
+          powerUpLocations: [],
+        },
+        {
+          onStateUpdate: (state) => {
+            this.gameState = state;
+            this.refreshDisplay();
+          },
+          onBattleResult: async (res) => {
+            await this.handleControllerBattleResult(res);
+          },
+          onGameOver: (winner, stats) => {
+            this.onlineGameOverStats = stats ?? null;
+            this.handleGameOver();
+          },
+          onAllianceProposal: (proposal) => {
+            this.showAllianceProposal(proposal);
+          },
+          onEventLog: (msg, color) => {
+            this.eventLog.addEvent(msg, color);
+          },
+          onToast: (msg, type) => {
+            this.toastManager.show(msg, type);
+          },
+        }
+      );
       this.setupSocketListeners();
       this.setupConnectionStateListener();
       this.uiRenderer.setConnectionState(this.socketClient!.state);
@@ -2238,6 +2281,63 @@ export class GameScene extends Phaser.Scene {
         }
       }
     }
+  }
+
+  private async handleControllerBattleResult(result: {
+    attackerId: number;
+    defenderId: number;
+    attackerDice: number[];
+    defenderDice: number[];
+    attackerWon: boolean;
+  }): Promise<void> {
+    const attackerTerritory = this.gameState.territories[result.attackerId];
+    const defenderTerritory = this.gameState.territories[result.defenderId];
+    if (!attackerTerritory || !defenderTerritory) return;
+
+    const attackerColor = PLAYER_COLORS[attackerTerritory.owner] ?? 0xffffff;
+    const defenderColor = PLAYER_COLORS[defenderTerritory.owner] ?? 0xffffff;
+    const attackerName = this.gameState.players[attackerTerritory.owner]?.name ?? "?";
+    const defenderName = this.gameState.players[defenderTerritory.owner]?.name ?? "?";
+    const outcome = result.attackerWon ? "won" : "lost";
+
+    this.eventLog.addEvent(
+      `⚔️ ${attackerName} → ${defenderName} [${result.attackerDice.length}v${result.defenderDice.length}] ${outcome}`,
+      attackerColor
+    );
+
+    this.territoryEffects.showAttackLine(
+      attackerTerritory.center.x, attackerTerritory.center.y,
+      defenderTerritory.center.x, defenderTerritory.center.y
+    );
+
+    this.soundManager.playDiceRoll();
+    await this.battleAnimator.showBattle(
+      result.attackerDice,
+      result.defenderDice,
+      attackerColor,
+      defenderColor,
+      result.attackerWon,
+      this.getBattleSpeed(1)
+    );
+
+    this.territoryEffects.hideAttackLine();
+    if (result.attackerWon) {
+      this.territoryEffects.showCapturePulse(defenderTerritory);
+      this.soundManager.playCapture();
+    } else {
+      this.soundManager.playAttackFail();
+    }
+    this.refreshDisplay();
+  }
+
+  shutdown(): void {
+    if (this.chatCursorTimer) {
+      this.chatCursorTimer.destroy();
+    }
+    if (this.connectionCleanup) {
+      this.connectionCleanup();
+    }
+    this.controller?.destroy();
   }
 
   private createChatUI(): void {
