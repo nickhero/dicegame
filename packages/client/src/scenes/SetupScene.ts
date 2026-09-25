@@ -36,6 +36,7 @@ const MAP_SHAPE_OPTIONS: { label: string; value: MapShape }[] = [
   { label: 'Diamond', value: 'diamond' },
   { label: 'Ring', value: 'ring' },
   { label: 'Continent', value: 'continent' },
+  { label: 'Islands', value: 'islands' },
 ];
 
 const PANEL_WIDTH = 750;
@@ -186,7 +187,7 @@ export class SetupScene extends Phaser.Scene {
     this.add.text(left + 30, rowY, 'Shape:', LABEL_STYLE);
     this.shapeBtns = MAP_SHAPE_OPTIONS.map((opt, i) => {
       const btn = this.createButton(
-        left + 160 + i * 100, rowY - 5, 85, 30, opt.label,
+        left + 160 + i * 92, rowY - 5, 80, 30, opt.label,
         () => {
           this.config.mapShape = opt.value;
           this.refreshShapeBtns();

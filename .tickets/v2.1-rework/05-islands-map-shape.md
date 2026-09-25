@@ -20,16 +20,16 @@ However, `MapShape` in `MapShapes.ts` only defines `'rectangle' | 'diamond' | 'r
 
 ## Tasks
 
-- [ ] **Define 'islands' in Shared Types**:
+- [x] **Define 'islands' in Shared Types**:
   - Extend `MapShape` union in `MapShapes.ts`: `'rectangle' | 'diamond' | 'ring' | 'continent' | 'islands'`.
   - Update `GameConfig.ts` and `LobbyService.ts` validation schemas to accept `'islands'`.
-- [ ] **Implement Islands Mask Generator**:
+- [x] **Implement Islands Mask Generator**:
   - In `packages/shared/src/game/MapShapes.ts`:
     - Implement `generateIslandsMask(cols: number, rows: number, rng: SeededRandom): boolean[][]`.
     - Generate 2 to 4 separate island clusters (circular or irregular land masses) separated by water, with 1-2 cell connecting land bridges or close border vertices so the graph remains fully connected.
     - Guarantee that all active cells belong to a single connected component using BFS/DFS validation.
-- [ ] **UI Selector in SetupScene**:
+- [x] **UI Selector in SetupScene**:
   - Add `'islands'` option to the map shape selector in `SetupScene.ts`.
   - Ensure the map preview canvas renders the islands shape correctly.
-- [ ] **Tests**:
+- [x] **Tests**:
   - Add unit tests in `MapShapes.test.ts` verifying `islands` mask bounds, minimum fill ratio, and connectivity guarantee.
