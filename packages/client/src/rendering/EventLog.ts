@@ -133,7 +133,7 @@ export class EventLog {
         fontSize: FONT_SIZE,
         color: colorStr,
         fontFamily: 'monospace',
-        wordWrap: { width: PANEL_W - 16 },
+        wordWrap: { width: PANEL_W - 16, useAdvancedWrap: true },
       });
       txt.setMask(this.mask);
       this.container.add(txt);

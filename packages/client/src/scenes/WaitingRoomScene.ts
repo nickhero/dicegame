@@ -184,7 +184,7 @@ export class WaitingRoomScene extends Phaser.Scene {
       this.leaveGame();
     }, 120, 26, 11);
 
-    // ─── Right Column: Chat Panel ──────────────────────────────────────────
+    // ─── Right Column: Chat Panel ───────────────────────────────────────────
     this.createChatPanel();
 
     // Connect to server and join room
@@ -228,6 +228,12 @@ export class WaitingRoomScene extends Phaser.Scene {
       color: '#666688',
       fontFamily: 'monospace',
     });
+
+    const chatMaskGraphics = this.add.graphics();
+    chatMaskGraphics.fillStyle(0xffffff);
+    chatMaskGraphics.fillRect(chatX + 8, inputY + 2, inputW - 16, inputH - 4);
+    chatMaskGraphics.setVisible(false);
+    this.chatInputDisplay.setMask(chatMaskGraphics.createGeometryMask());
 
     // Zone for input focus
     this.add.zone(chatX + inputW / 2, inputY + inputH / 2, inputW, inputH)
@@ -302,7 +308,12 @@ export class WaitingRoomScene extends Phaser.Scene {
     }
 
     const cursor = this.chatFocused && this.cursorVisible ? '|' : '';
-    this.chatInputDisplay.setText(`${this.chatInput}${cursor}`).setColor('#ffffff');
+    const maxVisible = 40;
+    let textToShow = this.chatInput;
+    if (textToShow.length > maxVisible) {
+      textToShow = '…' + textToShow.slice(-(maxVisible - 1));
+    }
+    this.chatInputDisplay.setText(`${textToShow}${cursor}`).setColor('#ffffff');
   }
 
   private sendChatMessage(): void {
@@ -359,7 +370,7 @@ export class WaitingRoomScene extends Phaser.Scene {
         fontSize: '12px',
         color: '#dddddd',
         fontFamily: 'monospace',
-        wordWrap: { width: 410 - msgX },
+        wordWrap: { width: 410 - msgX, useAdvancedWrap: true },
       });
       this.chatContainer.add(contentText);
     });
@@ -647,7 +658,7 @@ export class WaitingRoomScene extends Phaser.Scene {
       fontStyle: 'bold',
     }).setOrigin(0.5);
 
-    this.add.zone(x, y, w, h)
+    const zone = this.add.zone(x, y, w, h)
       .setInteractive({ useHandCursor: true })
       .on('pointerover', () => {
         bg.clear();

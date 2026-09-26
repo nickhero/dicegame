@@ -112,13 +112,32 @@ export class GameScene extends Phaser.Scene {
   }
 
   init(data?: Partial<GameSetupConfig> & { socketClient?: SocketClient; authClient?: AuthClient; initialState?: WireGameState }): void {
-    if (data?.socketClient) {
-      this.socketClient = data.socketClient;
-      this.isOnlineGame = true;
-    }
-    if (data?.authClient) {
-      this.authClient = data.authClient;
-    }
+    this.isOnlineGame = !!data?.socketClient;
+    this.socketClient = data?.socketClient ?? null;
+    this.authClient = data?.authClient ?? null;
+    this.localPlayerIndex = data?.initialState?.localPlayerIndex;
+    this.onlineGameOverStats = null;
+    this.controller = undefined;
+    this.isProcessing = false;
+    this.isDialogOpen = false;
+    this.undoSnapshot = null;
+    this.undoUsedThisTurn = false;
+    this.lastAllianceTickTurn = -1;
+    this.isChatOpen = false;
+    this.chatInput = "";
+    this.chatContainer = null;
+    this.chatTriggerBtn = null;
+    this.chatBg = null;
+    this.chatDisplayText = null;
+    this.exitDialog = null;
+    this.confirmDialog = null;
+    this.surrenderDialog = null;
+    this.helpOverlay = null;
+    this.disconnectOverlay = null;
+    this.disconnectTimer = null;
+    this.connectionCleanup = null;
+    this.fortifyMode = false;
+    this.fortifySourceId = null;
 
     if (data && typeof data.playerCount === 'number') {
       this.setupConfig = {
@@ -164,6 +183,7 @@ export class GameScene extends Phaser.Scene {
       this.spectatorMode = this.setupConfig.spectatorMode ?? false;
     } else {
       // Offline/local game: generate map locally
+      this.isOnlineGame = false;
       const rawSeed = this.setupConfig.mapSeed;
       let seed: number;
       if (rawSeed) {
@@ -458,7 +478,7 @@ export class GameScene extends Phaser.Scene {
       const name = player?.name ?? `Player ${action.playerIndex}`;
       switch (action.actionType) {
         case 'attack':
-          this.eventLog.addEvent(`⚔️ ${name} attacks`, player?.color ?? 0xffffff);
+          // Redundant: battle result with dice score follows immediately
           break;
         case 'endTurn':
           this.eventLog.addEvent(`⏭️ ${name} ends turn`, player?.color ?? 0xffffff);
@@ -888,6 +908,7 @@ export class GameScene extends Phaser.Scene {
           // ignore
         }
       }
+      this.socketClient?.disconnect();
       this.scene.start('LobbyScene', { authClient: this.authClient });
       return;
     }
@@ -1130,7 +1151,7 @@ export class GameScene extends Phaser.Scene {
 
       const outcome = result.attackerWins ? 'won' : 'lost';
       this.eventLog.addEvent(
-        `${this.gameState.players[attackerPlayerId].name} attacked T${attackerId} → T${territoryId} (${outcome} ${result.attackerTotal} vs ${result.defenderTotal})`,
+        `⚔️ ${this.gameState.players[attackerPlayerId].name} → ${this.gameState.players[defenderPlayerId].name} (${outcome} ${result.attackerTotal} vs ${result.defenderTotal})`,
         PLAYER_COLORS[attackerPlayerId]
       );
 
@@ -1785,7 +1806,7 @@ export class GameScene extends Phaser.Scene {
 
         const outcome = result.attackerWins ? 'won' : 'lost';
         this.eventLog.addEvent(
-          `${currentPlayer.name} attacked T${move.attackerId} → T${move.defenderId} (${outcome} ${result.attackerTotal} vs ${result.defenderTotal})`,
+          `⚔️ ${currentPlayer.name} → ${this.gameState.players[defenderPlayerId].name} (${outcome} ${result.attackerTotal} vs ${result.defenderTotal})`,
           currentPlayer.color
         );
 
@@ -2048,6 +2069,7 @@ export class GameScene extends Phaser.Scene {
       // Determine victory relative to local player
       const isVictory = this.localPlayerIndex !== undefined &&
         winner?.id === this.localPlayerIndex;
+      this.socketClient?.disconnect();
       this.scene.start('GameOverScene', {
         winnerName: winner?.name ?? 'Unknown',
         isVictory,
@@ -2304,9 +2326,11 @@ export class GameScene extends Phaser.Scene {
     const attackerName = this.gameState.players[attackerPlayerIdx]?.name ?? "?";
     const defenderName = this.gameState.players[defenderPlayerIdx]?.name ?? "?";
     const outcome = result.attackerWon ? "won" : "lost";
+    const attackerTotal = result.attackerDice.reduce((sum, d) => sum + d, 0);
+    const defenderTotal = result.defenderDice.reduce((sum, d) => sum + d, 0);
 
     this.eventLog.addEvent(
-      `⚔️ ${attackerName} → ${defenderName} [${result.attackerDice.length}v${result.defenderDice.length}] ${outcome}`,
+      `⚔️ ${attackerName} → ${defenderName} (${outcome} ${attackerTotal} vs ${defenderTotal})`,
       attackerColor
     );
 
@@ -2347,6 +2371,25 @@ export class GameScene extends Phaser.Scene {
     if (this.connectionCleanup) {
       this.connectionCleanup();
       this.connectionCleanup = null;
+    }
+    this.socketClient?.disconnect();
+    this.socketClient = null;
+    this.isOnlineGame = false;
+    this.localPlayerIndex = undefined;
+    this.onlineGameOverStats = null;
+    this.isProcessing = false;
+    this.isDialogOpen = false;
+    this.isChatOpen = false;
+    this.chatInput = "";
+    this.chatContainer?.destroy();
+    this.chatContainer = null;
+    this.chatTriggerBtn?.destroy();
+    this.chatTriggerBtn = null;
+    this.chatBg = null;
+    this.chatDisplayText = null;
+    if (this.disconnectOverlay) {
+      this.disconnectOverlay.destroy();
+      this.disconnectOverlay = null;
     }
     this.dismissConfirmDialog();
     this.dismissSurrenderDialog();
@@ -2403,6 +2446,13 @@ export class GameScene extends Phaser.Scene {
       color: "#ffffff",
       fontFamily: "monospace",
     }).setOrigin(0, 0.5);
+
+    const chatMaskGraphics = this.add.graphics();
+    chatMaskGraphics.fillStyle(0xffffff);
+    chatMaskGraphics.fillRect(btnX + 10, btnY + 2, 400, 28);
+    chatMaskGraphics.setVisible(false);
+    this.chatDisplayText.setMask(chatMaskGraphics.createGeometryMask());
+
     this.chatContainer.add(this.chatDisplayText);
 
     const sendBg = this.add.graphics();
@@ -2474,7 +2524,12 @@ export class GameScene extends Phaser.Scene {
     if (this.chatInput.length === 0) {
       this.chatDisplayText.setText(`💬 Type message... (Enter to send)${cursor}`).setColor("#777799");
     } else {
-      this.chatDisplayText.setText(`💬 ${this.chatInput}${cursor}`).setColor("#ffffff");
+      const maxVisible = 46;
+      let textToShow = this.chatInput;
+      if (textToShow.length > maxVisible) {
+        textToShow = "…" + textToShow.slice(-(maxVisible - 1));
+      }
+      this.chatDisplayText.setText(`💬 ${textToShow}${cursor}`).setColor("#ffffff");
     }
   }
 }
