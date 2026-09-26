@@ -72,6 +72,9 @@ export class GameScene extends Phaser.Scene {
   private surrenderDialog: Phaser.GameObjects.Container | null = null;
   private exitDialog: Phaser.GameObjects.Container | null = null;
   private isDialogOpen = false;
+  private seedText: Phaser.GameObjects.Text | null = null;
+  private allianceDialog: Phaser.GameObjects.Container | null = null;
+  private allianceProposalResolver: (() => void) | null = null;
   private speed: GameSetupConfig['speed'] = 'normal';
   private fogOfWarEnabled = false;
   private setupConfig!: GameSetupConfig;
@@ -132,6 +135,9 @@ export class GameScene extends Phaser.Scene {
     this.exitDialog = null;
     this.confirmDialog = null;
     this.surrenderDialog = null;
+    this.seedText = null;
+    this.allianceDialog = null;
+    this.allianceProposalResolver = null;
     this.helpOverlay = null;
     this.disconnectOverlay = null;
     this.disconnectTimer = null;
@@ -342,12 +348,14 @@ export class GameScene extends Phaser.Scene {
     // Initial render
     this.refreshDisplay();
 
-    // Seed display below HUD panel
-    this.add.text(GAME_WIDTH - 200, 318, `Seed: ${this.gameSeed}`, {
-      fontSize: '10px',
-      color: '#555566',
-      fontFamily: 'monospace',
-    }).setDepth(100);
+    // Seed display below HUD panel (offline games only)
+    if (!this.isOnlineGame && this.gameSeed > 0) {
+      this.seedText = this.add.text(GAME_WIDTH - 195, 352, `Seed: ${this.gameSeed}`, {
+        fontSize: '10px',
+        color: '#555566',
+        fontFamily: 'monospace',
+      }).setDepth(100);
+    }
 
     // Setup WebSocket listeners for online games
     if (this.isOnlineGame && this.socketClient) {
@@ -1615,7 +1623,7 @@ export class GameScene extends Phaser.Scene {
     const { spawn } = endTurn(this.gameState, this.rng);
 
     if (this.gameState.allianceState) {
-      this.processAllianceTick();
+      await this.processAllianceTick();
     }
 
     this.logSpawn(spawn);
@@ -1863,7 +1871,7 @@ export class GameScene extends Phaser.Scene {
       const { spawn: aiSpawn } = endTurn(this.gameState, this.rng);
 
       if (this.gameState.allianceState) {
-        this.processAllianceTick();
+        await this.processAllianceTick();
       }
 
       this.logSpawn(aiSpawn);
@@ -1973,7 +1981,7 @@ export class GameScene extends Phaser.Scene {
     );
   }
 
-  private processAllianceTick(): void {
+  private async processAllianceTick(): Promise<void> {
     if (!this.gameState.allianceState) return;
     if (this.gameState.turnNumber <= this.lastAllianceTickTurn) return;
     this.lastAllianceTickTurn = this.gameState.turnNumber;
@@ -1992,19 +2000,17 @@ export class GameScene extends Phaser.Scene {
     for (const proposal of tickResult.newProposals) {
       gameRecorder?.recordAction({ type: 'allianceProposal', fromPlayer: proposal.fromPlayer, toPlayer: proposal.toPlayer });
 
-      if (proposal.toPlayer === 0 && !this.spectatorMode) {
-        this.showAllianceProposal(proposal);
-      } else {
-        const target = this.gameState.players[proposal.toPlayer];
-        if (target && target.isAlive && target.personality) {
-          if (aiWouldAcceptProposal(this.gameState.allianceState!, this.gameState, proposal)) {
-            formAlliance(this.gameState.allianceState!, proposal.fromPlayer, proposal.toPlayer, this.gameState.turnNumber);
-            this.eventLog.addEvent(
-              `🤝 ${this.gameState.players[proposal.fromPlayer].name} and ${target.name} formed an alliance`,
-              0x44ddff
-            );
-            gameRecorder?.recordAction({ type: 'allianceFormed', player1: proposal.fromPlayer, player2: proposal.toPlayer, duration: 5 });
-          }
+      const target = this.gameState.players[proposal.toPlayer];
+      if (target?.isHuman && !this.spectatorMode) {
+        await this.showAllianceProposal(proposal);
+      } else if (target && target.isAlive && target.personality) {
+        if (aiWouldAcceptProposal(this.gameState.allianceState!, this.gameState, proposal)) {
+          formAlliance(this.gameState.allianceState!, proposal.fromPlayer, proposal.toPlayer, this.gameState.turnNumber);
+          this.eventLog.addEvent(
+            `🤝 ${this.gameState.players[proposal.fromPlayer].name} and ${target.name} formed an alliance`,
+            0x44ddff
+          );
+          gameRecorder?.recordAction({ type: 'allianceFormed', player1: proposal.fromPlayer, player2: proposal.toPlayer, duration: 5 });
         }
       }
     }
@@ -2126,21 +2132,27 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private showAllianceProposal(proposal: AllianceProposal): void {
-    if (this.isDialogOpen) return;
-    this.isDialogOpen = true;
+  private showAllianceProposal(proposal: AllianceProposal): Promise<void> {
+    return new Promise<void>((resolve) => {
+      if (this.isDialogOpen) {
+        resolve();
+        return;
+      }
+      this.isDialogOpen = true;
 
-    const fromPlayer = this.gameState.players[proposal.fromPlayer];
-    const fromColor = '#' + fromPlayer.color.toString(16).padStart(6, '0');
+      const fromPlayer = this.gameState.players[proposal.fromPlayer];
+      const fromColor = '#' + fromPlayer.color.toString(16).padStart(6, '0');
 
-    const container = this.add.container(GAME_WIDTH / 2, GAME_HEIGHT / 2).setDepth(600);
+      const container = this.add.container(GAME_WIDTH / 2, GAME_HEIGHT / 2).setDepth(600);
+      this.allianceDialog = container;
+      this.allianceProposalResolver = resolve;
 
-    const bg = this.add.graphics();
-    bg.fillStyle(0x1a1a2e, 0.95);
-    bg.fillRoundedRect(-180, -80, 360, 160, 12);
-    bg.lineStyle(2, 0x44ddff, 1);
-    bg.strokeRoundedRect(-180, -80, 360, 160, 12);
-    container.add(bg);
+      const bg = this.add.graphics();
+      bg.fillStyle(0x1a1a2e, 0.95);
+      bg.fillRoundedRect(-180, -80, 360, 160, 12);
+      bg.lineStyle(2, 0x44ddff, 1);
+      bg.strokeRoundedRect(-180, -80, 360, 160, 12);
+      container.add(bg);
 
     const title = this.add.text(0, -55, '🤝 Alliance Proposal', {
       fontSize: '16px', color: '#44ddff', fontFamily: 'monospace', fontStyle: 'bold',
@@ -2165,13 +2177,24 @@ export class GameScene extends Phaser.Scene {
     container.add(declineBtn);
 
     const cleanup = () => {
+      this.allianceDialog = null;
+      this.allianceProposalResolver = null;
       container.destroy();
       this.isDialogOpen = false;
+      resolve();
     };
 
     acceptBtn.on('pointerup', async () => {
       if (this.controller) {
         await this.controller.respondAlliance(proposal.proposalId || String(proposal.fromPlayer), true);
+      } else if (this.gameState.allianceState) {
+        formAlliance(this.gameState.allianceState, proposal.fromPlayer, proposal.toPlayer, this.gameState.turnNumber, 5);
+        this.eventLog.addEvent(
+          `🤝 Formed alliance with ${fromPlayer.name} (5 turns)!`,
+          0x44ddff
+        );
+        const gameRecorder = this.data.get('gameRecorder') as GameRecorder | undefined;
+        gameRecorder?.recordAction({ type: 'allianceFormed', player1: proposal.fromPlayer, player2: proposal.toPlayer, duration: 5 });
       }
       cleanup();
       this.refreshDisplay();
@@ -2186,6 +2209,7 @@ export class GameScene extends Phaser.Scene {
         0xff6644
       );
       cleanup();
+    });
     });
   }
 
@@ -2391,6 +2415,14 @@ export class GameScene extends Phaser.Scene {
       this.disconnectOverlay.destroy();
       this.disconnectOverlay = null;
     }
+    if (this.allianceProposalResolver) {
+      this.allianceProposalResolver();
+      this.allianceProposalResolver = null;
+    }
+    this.allianceDialog?.destroy();
+    this.allianceDialog = null;
+    this.seedText?.destroy();
+    this.seedText = null;
     this.dismissConfirmDialog();
     this.dismissSurrenderDialog();
     this.dismissExitDialog();

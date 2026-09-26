@@ -84,11 +84,11 @@ export class UIRenderer {
     this.connectionDot = this.scene.add.graphics();
     this.container.add(this.connectionDot);
 
-    this.connectionLabel = this.scene.add.text(GAME_WIDTH - 172, 315, '', {
+    this.connectionLabel = this.scene.add.text(panelX + 18, 325, '', {
       fontSize: '11px',
       color: '#aaaaaa',
       fontFamily: 'monospace',
-    });
+    }).setOrigin(0, 0.5);
     this.container.add(this.connectionLabel);
 
     // Alliance proposal buttons (created lazily per player slot)
@@ -241,9 +241,10 @@ export class UIRenderer {
     };
     const { hex, label, textColor } = colorMap[state];
 
+    const panelX = GAME_WIDTH - 190;
     this.connectionDot.clear();
     this.connectionDot.fillStyle(hex, 1);
-    this.connectionDot.fillCircle(GAME_WIDTH - 185, 321, 4);
+    this.connectionDot.fillCircle(panelX + 7, 325, 4);
 
     this.connectionLabel.setText(label).setColor(textColor);
   }
