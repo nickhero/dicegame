@@ -3,5 +3,6 @@
 export type {
   ServerToClientEvents,
   ClientToServerEvents,
+  InterServerEvents,
   SocketData,
 } from '@dicewars/shared';

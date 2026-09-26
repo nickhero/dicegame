@@ -91,7 +91,7 @@ export function deserializeWireState(wire: WireGameState): GameState {
     consecutiveDesperate,
   };
 
-  if (wire.alliances.length > 0) {
+  if (wire.alliancesEnabled || wire.alliances.length > 0) {
     state.allianceState = deserializeAllianceState(wire.alliances, players.length);
   }
 

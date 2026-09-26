@@ -662,6 +662,7 @@ describe('Integration: Full Game Flow', () => {
       expect(state).toHaveProperty('turnNumber');
       expect(state).toHaveProperty('phase');
       expect(state).toHaveProperty('alliances');
+      expect(state).toHaveProperty('alliancesEnabled');
       expect(state).toHaveProperty('powerUpLocations');
       expect(state).toHaveProperty('gameOver');
       expect(state).toHaveProperty('winner');
@@ -672,6 +673,7 @@ describe('Integration: Full Game Flow', () => {
       expect(typeof state.gameOver).toBe('boolean');
       expect(['selectingAttacker', 'selectingDefender']).toContain(state.phase);
       expect(Array.isArray(state.alliances)).toBe(true);
+      expect(typeof state.alliancesEnabled).toBe('boolean');
       expect(Array.isArray(state.powerUpLocations)).toBe(true);
 
       // WireTerritory: cells are [number, number][] tuples, center is [number, number]

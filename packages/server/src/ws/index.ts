@@ -1,7 +1,7 @@
 import { Server as HttpServer } from 'node:http';
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import { jwtVerify } from 'jose';
-import type { ServerToClientEvents, ClientToServerEvents, SocketData } from '../types/events';
+import type { ServerToClientEvents, ClientToServerEvents, InterServerEvents, SocketData } from '../types/events';
 import { config } from '../config';
 import { getDb, type AppDatabase } from '../db/connection';
 import { LobbyService } from '../services/LobbyService';
@@ -14,7 +14,7 @@ import { gameEngine } from '../services/gameEngineInstance';
 import { initAITurnRunner } from '../services/aiTurnRunnerInstance';
 import { initTurnTimer } from '../services/turnTimerInstance';
 
-type TypedServer = SocketIOServer<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData>;
+type TypedServer = SocketIOServer<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
 
 const secret = new TextEncoder().encode(config.jwtSecret);
 

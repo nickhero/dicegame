@@ -7,14 +7,7 @@ import { users } from '../../src/db/schema';
 import { config } from '../../src/config';
 
 function applyUsersSchema(db: ReturnType<typeof createTestDb>) {
-  db.run(sql`CREATE TABLE IF NOT EXISTS users (
-    id TEXT PRIMARY KEY,
-    display_name TEXT NOT NULL,
-    is_guest INTEGER NOT NULL DEFAULT 1,
-    password_hash TEXT,
-    created_at TEXT NOT NULL,
-    last_seen_at TEXT NOT NULL
-  )`);
+  db.run(sql`CREATE TABLE IF NOT EXISTS users (\n    id TEXT PRIMARY KEY,\n    display_name TEXT NOT NULL,\n    is_guest INTEGER NOT NULL DEFAULT 1,\n    password_hash TEXT,\n    created_at TEXT NOT NULL,\n    last_seen_at TEXT NOT NULL\n  )`);
 }
 
 const encoder = new TextEncoder();
@@ -144,6 +137,77 @@ describe('Auth endpoints', () => {
       });
       expect(res.status).toBe(200);
     });
+
+    it('rejects guest username if it belongs to a registered account', async () => {
+      await app.request('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'RegisteredGeneral', password: 'mypassword123' }),
+      });
+
+      const res = await app.request('/api/auth/guest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ displayName: 'RegisteredGeneral' }),
+      });
+      expect(res.status).toBe(409);
+      const body = await res.json();
+      expect(body.error.code).toBe('AUTH_USERNAME_TAKEN');
+
+      const resLower = await app.request('/api/auth/guest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ displayName: 'registeredgeneral' }),
+      });
+      expect(resLower.status).toBe(409);
+    });
+
+    it('rejects guest username even if a guest with that name was created prior to registration', async () => {
+      await app.request('/api/auth/guest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ displayName: 'PriorUser' }),
+      });
+
+      const regRes = await app.request('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'PriorUser', password: 'password123' }),
+      });
+      expect(regRes.status).toBe(200);
+
+      const guestRes = await app.request('/api/auth/guest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ displayName: 'PriorUser' }),
+      });
+      expect(guestRes.status).toBe(409);
+      const body = await guestRes.json();
+      expect(body.error.code).toBe('AUTH_USERNAME_TAKEN');
+
+      const loginRes = await app.request('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'PriorUser', password: 'password123' }),
+      });
+      expect(loginRes.status).toBe(200);
+    });
+
+    it('allows guest username if it matches another guest user', async () => {
+      const res1 = await app.request('/api/auth/guest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ displayName: 'GuestHero' }),
+      });
+      expect(res1.status).toBe(200);
+
+      const res2 = await app.request('/api/auth/guest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ displayName: 'GuestHero' }),
+      });
+      expect(res2.status).toBe(200);
+    });
   });
 
   describe('POST /api/auth/refresh', () => {
@@ -188,28 +252,126 @@ describe('Auth endpoints', () => {
   });
 
   describe('POST /api/auth/register', () => {
-    it('returns 501 not implemented', async () => {
+    it('registers a new user successfully', async () => {
       const res = await app.request('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ username: 'Commander123', password: 'supersecret123' }),
       });
-      expect(res.status).toBe(501);
+      expect(res.status).toBe(200);
       const body = await res.json();
-      expect(body.error).toBe('Not implemented');
+      expect(body.token).toBeTruthy();
+      expect(body.user.name).toBe('Commander123');
+      expect(body.user.isGuest).toBe(false);
+      expect(body.user.id).toMatch(/^user_/);
+
+      const dbUser = db.select().from(users).all()[0];
+      expect(dbUser.displayName).toBe('Commander123');
+      expect(dbUser.isGuest).toBe(false);
+      expect(dbUser.passwordHash).toBeTruthy();
+      expect(dbUser.passwordHash).not.toBe('supersecret123');
+    });
+
+    it('rejects short username', async () => {
+      const res = await app.request('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'ab', password: 'supersecret123' }),
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it('rejects short password', async () => {
+      const res = await app.request('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'ValidUser', password: 'short' }),
+      });
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error.code).toBe("AUTH_INVALID_PASSWORD");
+    });
+
+    it("rejects password exceeding 128 chars", async () => {
+      const res = await app.request("/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: "ValidUserLong", password: "a".repeat(129) }),
+      });
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error.code).toBe("AUTH_INVALID_PASSWORD");
+    });
+
+    it('rejects duplicate username', async () => {
+      await app.request('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'ExistingUser', password: 'supersecret123' }),
+      });
+
+      const res2 = await app.request('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'ExistingUser', password: 'differentPass123' }),
+      });
+      expect(res2.status).toBe(409);
+      const body2 = await res2.json();
+      expect(body2.error.code).toBe('AUTH_USER_EXISTS');
     });
   });
 
   describe('POST /api/auth/login', () => {
-    it('returns 501 not implemented', async () => {
+    beforeEach(async () => {
+      await app.request('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'LoginUser', password: 'mypassword123' }),
+      });
+    });
+
+    it('logs in successfully with correct credentials', async () => {
       const res = await app.request('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ username: 'LoginUser', password: 'mypassword123' }),
       });
-      expect(res.status).toBe(501);
+      expect(res.status).toBe(200);
       const body = await res.json();
-      expect(body.error).toBe('Not implemented');
+      expect(body.token).toBeTruthy();
+      expect(body.user.name).toBe('LoginUser');
+      expect(body.user.isGuest).toBe(false);
+    });
+
+    it('rejects invalid password', async () => {
+      const res = await app.request('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'LoginUser', password: 'wrongpassword' }),
+      });
+      expect(res.status).toBe(401);
+      const body = await res.json();
+      expect(body.error.code).toBe('AUTH_INVALID_CREDENTIALS');
+    });
+
+    it('rejects non-existent username', async () => {
+      const res = await app.request('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'UnknownUser', password: 'somepassword123' }),
+      });
+      expect(res.status).toBe(401);
+      const body = await res.json();
+      expect(body.error.code).toBe('AUTH_INVALID_CREDENTIALS');
+    });
+
+    it('rejects missing credentials', async () => {
+      const res = await app.request('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'LoginUser' }),
+      });
+      expect(res.status).toBe(400);
     });
   });
 
