@@ -79,6 +79,15 @@ export class UserService {
     return results[0];
   }
 
+  async findRegisteredByDisplayName(displayName: string): Promise<typeof users.$inferSelect | undefined> {
+    const results = this.db
+      .select()
+      .from(users)
+      .where(sql`lower(${users.displayName}) = lower(${displayName}) and ${users.isGuest} = 0`)
+      .all();
+    return results[0];
+  }
+
   async updateLastSeen(id: string): Promise<void> {
     this.db
       .update(users)

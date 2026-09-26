@@ -13,7 +13,9 @@ export class UIRenderer {
   private statusText!: Phaser.GameObjects.Text;
   private endTurnBtn!: Phaser.GameObjects.Container;
   private undoBtn!: Phaser.GameObjects.Container;
+  private backBtn!: Phaser.GameObjects.Container;
   private onEndTurn: (() => void) | null = null;
+  private onBack: (() => void) | null = null;
   private onUndo: (() => void) | null = null;
   private onProposeAlliance: ((targetIndex: number) => void) | null = null;
   private spectatorMode = false;
@@ -44,6 +46,10 @@ export class UIRenderer {
       fontStyle: 'bold',
     });
     this.container.add(this.turnText);
+
+    // Back button in HUD header
+    this.backBtn = this.createBackButton(panelX + 130, 26);
+    this.container.add(this.backBtn);
 
     // Player info slots (up to 6 players)
     for (let i = 0; i < 6; i++) {
@@ -97,6 +103,43 @@ export class UIRenderer {
       this.allianceBtns.push(btn);
       this.container.add(btn);
     }
+  }
+
+  private createBackButton(x: number, y: number): Phaser.GameObjects.Container {
+    const btn = this.scene.add.container(x, y);
+
+    const bg = this.scene.add.graphics();
+    bg.fillStyle(0x33334d, 1);
+    bg.fillRoundedRect(-32, -11, 64, 22, 4);
+    btn.add(bg);
+
+    const text = this.scene.add.text(0, 0, '◀ BACK', {
+      fontSize: '11px',
+      color: '#cccccc',
+      fontFamily: 'monospace',
+      fontStyle: 'bold',
+    }).setOrigin(0.5);
+    btn.add(text);
+
+    const zone = this.scene.add.zone(0, 0, 64, 22).setInteractive({ useHandCursor: true });
+    zone.on('pointerover', () => {
+      bg.clear();
+      bg.fillStyle(0x555577, 1);
+      bg.fillRoundedRect(-32, -11, 64, 22, 4);
+      text.setColor('#ffffff');
+    });
+    zone.on('pointerout', () => {
+      bg.clear();
+      bg.fillStyle(0x33334d, 1);
+      bg.fillRoundedRect(-32, -11, 64, 22, 4);
+      text.setColor('#cccccc');
+    });
+    zone.on('pointerdown', () => {
+      if (this.onBack) this.onBack();
+    });
+    btn.add(zone);
+
+    return btn;
   }
 
   private createUndoButton(x: number, y: number): Phaser.GameObjects.Container {
@@ -172,6 +215,10 @@ export class UIRenderer {
 
   setEndTurnCallback(cb: () => void): void {
     this.onEndTurn = cb;
+  }
+
+  setBackCallback(cb: () => void): void {
+    this.onBack = cb;
   }
 
   setUndoCallback(cb: () => void): void {

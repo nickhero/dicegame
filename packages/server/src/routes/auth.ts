@@ -2,14 +2,13 @@ import { Hono } from 'hono';
 import { SignJWT, jwtVerify } from 'jose';
 import { nanoid } from 'nanoid';
 import { config } from '../config';
+import { AppDatabase } from '../db/connection';
+import { UserService, hashPassword, verifyPassword } from '../services/UserService';
 import { authMiddleware } from '../middleware/auth';
 import { rateLimit } from '../middleware/rateLimit';
-import { UserService, hashPassword, verifyPassword } from '../services/UserService';
-import { AppDatabase } from '../db/connection';
 import type { AppEnv } from '../types/env';
 
 const encoder = new TextEncoder();
-
 const TWENTY_HOURS_SECS = 20 * 60 * 60;
 
 const guestRateLimit = rateLimit({ maxRequests: 60, windowMs: 60 * 60 * 1000 });
@@ -28,6 +27,19 @@ export function createAuthRoutes(db: AppDatabase) {
 
     if (!/^[a-zA-Z0-9 _-]+$/.test(displayName)) {
       return c.json({ error: { code: 'AUTH_INVALID_NAME', message: 'Display name can only contain letters, numbers, spaces, hyphens and underscores' } }, 400);
+    }
+
+    const registeredUser = await userService.findRegisteredByDisplayName(displayName);
+    if (registeredUser) {
+      return c.json(
+        {
+          error: {
+            code: 'AUTH_USERNAME_TAKEN',
+            message: 'This name belongs to a registered account. Please log in or choose a different name.',
+          },
+        },
+        409,
+      );
     }
 
     const guestId = `guest_${nanoid(12)}`;
@@ -121,8 +133,8 @@ export function createAuthRoutes(db: AppDatabase) {
       );
     }
 
-    const existingUser = await userService.findByDisplayName(username);
-    if (existingUser) {
+    const existingRegistered = await userService.findRegisteredByDisplayName(username);
+    if (existingRegistered) {
       return c.json(
         {
           error: {
@@ -173,8 +185,8 @@ export function createAuthRoutes(db: AppDatabase) {
       );
     }
 
-    const user = await userService.findByDisplayName(username);
-    if (!user || user.isGuest || !user.passwordHash) {
+    const user = await userService.findRegisteredByDisplayName(username);
+    if (!user || !user.passwordHash) {
       return c.json(
         {
           error: {
@@ -221,4 +233,3 @@ export function createAuthRoutes(db: AppDatabase) {
 
   return routes;
 }
-

@@ -14,6 +14,8 @@ export interface BattleAnimationData {
   attackerWon: boolean;
   conquered: boolean;
   diceLost?: number;
+  attackerPlayerIndex?: number;
+  defenderPlayerIndex?: number;
 }
 
 export interface GameControllerEvents {

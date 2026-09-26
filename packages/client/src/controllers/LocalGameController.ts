@@ -7,6 +7,8 @@ import {
   useFortify,
   formAlliance,
   aiWouldAcceptProposal,
+  wouldBreakAlliance,
+  breakAlliance,
   createSnapshot,
   restoreSnapshot,
   SeededRandom,
@@ -66,9 +68,17 @@ export class LocalGameController implements IGameController {
     const defender = this.state.territories[toId];
     if (!attacker || !defender) return false;
 
+    const attackerPlayerId = attacker.owner;
+    const defenderPlayerId = defender.owner;
+
     // Snapshot before first attack of turn
     if (this.undoEnabled && !this.undoUsedThisTurn && this.undoSnapshot === null) {
       this.undoSnapshot = createSnapshot(this.state);
+    }
+
+    // Break alliance if attacking ally
+    if (this.state.allianceState && wouldBreakAlliance(this.state.allianceState, attackerPlayerId, defenderPlayerId)) {
+      breakAlliance(this.state.allianceState, attackerPlayerId, defenderPlayerId);
     }
 
     const battle = executeAttack(fromId, toId, this.state, this.rng);
@@ -77,14 +87,14 @@ export class LocalGameController implements IGameController {
       type: "attack",
       attackerId: fromId,
       defenderId: toId,
-      attackerPlayerId: attacker.owner,
-      defenderPlayerId: defender.owner,
+      attackerPlayerId,
+      defenderPlayerId,
       result: battle,
     });
 
     this.stats.recordAttack(
-      attacker.owner,
-      defender.owner,
+      attackerPlayerId,
+      defenderPlayerId,
       battle,
       this.state,
     );
@@ -98,6 +108,8 @@ export class LocalGameController implements IGameController {
       defenderTotal: battle.defenderTotal,
       attackerWon: battle.attackerWins,
       conquered: battle.attackerWins,
+      attackerPlayerIndex: attackerPlayerId,
+      defenderPlayerIndex: defenderPlayerId,
     });
 
     if (this.state.winner !== null) {

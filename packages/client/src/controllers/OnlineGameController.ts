@@ -67,17 +67,21 @@ export class OnlineGameController implements IGameController {
     };
 
     this.battleResultHandler = (result: BattleResultPayload) => {
-      const attackerTotal = result.attackerDice.reduce((a, b) => a + b, 0);
-      const defenderTotal = result.defenderDice.reduce((a, b) => a + b, 0);
+      const atkDice = result.attackerDice ?? [];
+      const defDice = result.defenderDice ?? [];
+      const attackerTotal = atkDice.reduce((a, b) => a + b, 0);
+      const defenderTotal = defDice.reduce((a, b) => a + b, 0);
       this.events.onBattleResult?.({
         attackerId: result.attackerTerritoryId,
         defenderId: result.defenderTerritoryId,
-        attackerDice: result.attackerDice,
-        defenderDice: result.defenderDice,
+        attackerDice: atkDice,
+        defenderDice: defDice,
         attackerTotal,
         defenderTotal,
         attackerWon: result.attackerWins,
         conquered: result.attackerWins,
+        attackerPlayerIndex: result.attackerPlayerIndex,
+        defenderPlayerIndex: result.defenderPlayerIndex,
       });
     };
 
