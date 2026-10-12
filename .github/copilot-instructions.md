@@ -31,9 +31,17 @@ packages/
 
 1. **`shared`** has ZERO dependencies on `server` or `client`. No browser APIs, no Node.js APIs, no Phaser.
 2. **`server`** imports from `@dicewars/shared`. Never imports from `client`.
-3. **`client`** imports from `@dicewars/shared`. Never imports from `server`. Never calls game-mutating functions directly — sends intents via WebSocket.
+3. **`client`** imports from `@dicewars/shared`. Never imports from `server`. Never calls game-mutating functions directly — delegates to controllers or sends intents via WebSocket.
 4. All game logic must be unit-testable without a browser or DOM.
 5. Rendering code should be **stateless** — it reads from `GameState` and draws. No game decisions in rendering.
+
+### Client controllers (packages/client/src/controllers/)
+
+| File | Purpose |
+|------|---------|
+| `GameController.ts` | Interface defining player actions & event hooks for game coordination |
+| `LocalGameController.ts` | Local turn execution, AI loops, dice distribution, undo snapshots, local alliances |
+| `OnlineGameController.ts` | WebSocket listener orchestration, action emission, turn timer, online alliances & chat |
 
 ### Client rendering (packages/client/src/rendering/)
 
@@ -54,11 +62,11 @@ packages/
 |------|---------|
 | `BootScene.ts` | Loading screen |
 | `MenuScene.ts` | Title, start, history, achievements gallery |
-| `LoginScene.ts` | Guest login for online play |
+| `LoginScene.ts` | User registration, login, and guest mode for online play |
 | `LobbyScene.ts` | Online game browser + create/join |
 | `SetupScene.ts` | Game configuration UI (local & online) |
-| `WaitingRoomScene.ts` | Pre-game lobby for online matches |
-| `GameScene.ts` | Main gameplay (~2000 lines) |
+| `WaitingRoomScene.ts` | Pre-game lobby with player slots and room chat |
+| `GameScene.ts` | Main gameplay presentation layer, coordinating with `GameController` |
 | `GameOverScene.ts` | Victory/defeat + stats + achievements |
 | `ReplayScene.ts` | Game replay playback |
 | `HistoryScene.ts` | Match history browser |
@@ -68,7 +76,8 @@ packages/
 | File | Purpose |
 |------|---------|
 | `SocketClient.ts` | Socket.IO connection management |
-| `LobbyClient.ts` | REST API client for lobby/auth |
+| `LobbyClient.ts` | REST API client for lobby |
+| `AuthClient.ts` | REST API client for registration, login, and JWT tokens |
 
 ## Tech Stack
 
@@ -92,7 +101,8 @@ npm run dev:server     # Start Hono server on :3001 (tsx watch)
 npm run build          # Build shared + client for production
 npm run test           # Run shared package tests
 npm run test:server    # Run server package tests
-npm run test:all       # Run all tests (shared + server)
+npm run test:client    # Run client package tests
+npm run test:all       # Run all tests (shared + server + client)
 npm run typecheck      # Type-check all packages (tsc --build)
 ```
 
@@ -142,11 +152,14 @@ Six AI personality types (cautious, balanced, aggressive, reckless, expansionist
 Power-ups (Shield, Charge, Fortify, Reinforce) add tactical depth. Fortify clamps dice moved to target capacity (`MAX_DICE_PER_TERRITORY - target.dice`). Fog of war limits visibility to owned + adjacent territories; server sends per-player filtered state via `FogFilter.filterStateForPlayer()`. The alliance system uses a **proposal flow** — `proposeAlliance` creates a proposal; mutual proposals auto-accept, or the target can `respondAlliance`. Attacking an ally breaks the alliance (same as AI path). Includes reputation tracking, betrayal mechanics, and AI diplomacy logic.
 
 ### Online vs Local game differences
-Online multiplayer enforces several restrictions compared to local play:
+Online multiplayer enforces several rules compared to local play:
 - **Speed**: Always `normal` (no fast/instant options)
 - **Undo**: Disabled
 - **Spectator mode**: Not available in online setup
 - **AI personality**: Always randomized server-side (client shows Open/AI toggle only)
+- **Alliances**: Fully supported online via server-side diplomacy negotiation and socket events
+- **Chat**: Real-time room chat available both in the waiting room and in-game
+- **User Accounts**: Registered users sync stats and match history to the server; guest mode persists locally
 
 ### Server architecture (packages/server/src/)
 
@@ -165,11 +178,12 @@ Online multiplayer enforces several restrictions compared to local play:
 
 Tests live in each package's `tests/` directory. All game logic tests run against pure TypeScript — no DOM, no Phaser.
 
-- **Shared**: 478+ tests in `packages/shared/tests/` — `npm run test`
-- **Server**: 300+ tests (unit + E2E) in `packages/server/tests/` — `npm run test:server`
-- **All**: `npm run test:all` (780+ total)
+- **Shared**: 486+ tests in `packages/shared/tests/` — `npm run test`
+- **Server**: 319+ tests (unit + E2E) in `packages/server/tests/` — `npm run test:server`
+- **Client**: 33+ tests in `packages/client/tests/` — `npm run test:client`
+- **All**: `npm run test:all` (838+ total)
 
-When modifying game logic, always run `npm run test` to verify. When modifying rendering, run `npm run typecheck` at minimum.
+When modifying game logic, always run `npm run test` to verify. When modifying rendering or controllers, run `npm run typecheck` and `npm run test:client` at minimum.
 
 ## Graphics
 
@@ -182,11 +196,12 @@ All visuals are programmatic — no external image assets. Dice textures are gen
 
 1. **Game rules change?** → Modify `packages/shared/`, add/update tests, run `npm run test`
 2. **Visual change?** → Modify `packages/client/src/rendering/`, run `npm run typecheck`, verify in browser
-3. **New feature?** → Start with game logic in `shared` (testable), then wire up server + client
-4. **Adding constants?** → Put in `packages/shared/src/game/constants.ts`
-5. **New API endpoint?** → Add route in `packages/server/src/routes/`, test with `app.request()`
-6. **Multiplayer event?** → Define types in `packages/server/src/types/events.ts`, handle in both server and client
-7. **Cross-package types?** → Define in `packages/shared`, import as `@dicewars/shared`
+3. **Controller / client flow change?** → Modify `packages/client/src/controllers/`, run `npm run test:client`
+4. **New feature?** → Start with game logic in `shared` (testable), then wire up server + client
+5. **Adding constants?** → Put in `packages/shared/src/game/constants.ts`
+6. **New API endpoint?** → Add route in `packages/server/src/routes/`, test with `app.request()`
+7. **Multiplayer event?** → Define types in `packages/server/src/types/events.ts`, handle in both server and client
+8. **Cross-package types?** → Define in `packages/shared`, import as `@dicewars/shared`
 
 ## Versioning & Commits
 
@@ -202,8 +217,6 @@ All commit messages **must** use [Conventional Commits](https://www.conventional
 <type>(<scope>): <short description>
 
 [optional body]
-
-Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
 ```
 
 **Types and version impact:**

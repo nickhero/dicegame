@@ -19,6 +19,7 @@ import {
   formAlliance,
   breakAlliance,
   wouldBreakAlliance,
+  aiWouldAcceptProposal,
   largestContiguousGroup,
   MAX_DICE_PER_TERRITORY,
 } from '@dicewars/shared';
@@ -37,6 +38,15 @@ export interface ServerGameConfig {
   undoEnabled: boolean;
   seed?: string;
   turnTimerDuration?: number;
+}
+
+export interface ProposeAllianceResult {
+  fromPlayer: number;
+  toPlayer: number;
+  duration: number;
+  formed: boolean;
+  targetIsAI: boolean;
+  aiAccepted?: boolean;
 }
 
 // In-memory active game
@@ -255,7 +265,7 @@ export class GameEngine {
     roomId: string,
     userId: string,
     targetPlayerIndex: number,
-  ): void {
+  ): ProposeAllianceResult {
     const game = this.getGameOrThrow(roomId);
     const playerIndex = this.getPlayerIndexOrThrow(game, userId);
 
@@ -286,7 +296,44 @@ export class GameEngine {
       throw new GameEngineError(GameErrorCode.GAME_ALLIANCE_INVALID_TARGET, 'Alliance already proposed');
     }
 
-    // Check if the target already proposed to us — auto-accept
+    // If target is AI: evaluate acceptance immediately
+    if (!target.isHuman) {
+      const proposal = {
+        fromPlayer: playerIndex,
+        toPlayer: targetPlayerIndex,
+        duration: 5,
+        createdTurn: game.state.turnNumber,
+      };
+      const accepted = aiWouldAcceptProposal(allianceState, game.state, proposal);
+      if (accepted) {
+        formAlliance(allianceState, playerIndex, targetPlayerIndex, game.state.turnNumber);
+        game.recorder.recordAction({
+          type: 'allianceFormed',
+          player1: playerIndex,
+          player2: targetPlayerIndex,
+          duration: 5,
+        });
+        return {
+          fromPlayer: playerIndex,
+          toPlayer: targetPlayerIndex,
+          duration: 5,
+          formed: true,
+          targetIsAI: true,
+          aiAccepted: true,
+        };
+      } else {
+        return {
+          fromPlayer: playerIndex,
+          toPlayer: targetPlayerIndex,
+          duration: 5,
+          formed: false,
+          targetIsAI: true,
+          aiAccepted: false,
+        };
+      }
+    }
+
+    // Target is human: check if the target already proposed to us — auto-accept
     const reverseIdx = allianceState.proposals.findIndex(
       (p) => p.fromPlayer === targetPlayerIndex && p.toPlayer === playerIndex,
     );
@@ -299,12 +346,27 @@ export class GameEngine {
         player2: targetPlayerIndex,
         duration: 5,
       });
+      return {
+        fromPlayer: playerIndex,
+        toPlayer: targetPlayerIndex,
+        duration: 5,
+        formed: true,
+        targetIsAI: false,
+      };
     } else {
       allianceState.proposals.push({
         fromPlayer: playerIndex,
         toPlayer: targetPlayerIndex,
         duration: 5,
+        createdTurn: game.state.turnNumber,
       });
+      return {
+        fromPlayer: playerIndex,
+        toPlayer: targetPlayerIndex,
+        duration: 5,
+        formed: false,
+        targetIsAI: false,
+      };
     }
   }
 

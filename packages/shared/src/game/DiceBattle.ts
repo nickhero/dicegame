@@ -21,7 +21,7 @@ export function sumRolls(rolls: number[]): number {
 }
 
 export const CHARGE_EXTRA_DICE = 2;
-const SHIELD_DEFENSE_BONUS = 3;
+export const SHIELD_DEFENSE_BONUS = 3;
 
 /**
  * Resolve a battle between attacker and defender.
@@ -64,9 +64,24 @@ export function resolveBattle(
 /**
  * Estimate attack success probability using the average dice advantage.
  * Each die averages 3.5. Attacker needs to roll strictly higher.
+ * Optionally factors in charge (+2 dice) and shield (+3 defense bonus, ~1 die equivalent).
  */
-export function estimateWinProbability(attackerDice: number, defenderDice: number): number {
-  const diff = attackerDice - defenderDice;
+export function estimateWinProbability(
+  attackerDice: number,
+  defenderDice: number,
+  attackerPowerUp?: string,
+  defenderPowerUp?: string,
+): number {
+  let effectiveAtk = attackerDice;
+  let effectiveDef = defenderDice;
+  if (attackerPowerUp === 'charge') {
+    effectiveAtk += CHARGE_EXTRA_DICE;
+  }
+  if (defenderPowerUp === 'shield') {
+    effectiveDef += 1; // +3 flat defense bonus is roughly ~1 die equivalent
+  }
+
+  const diff = effectiveAtk - effectiveDef;
   // Sigmoid approximation: 0 diff → ~40%, +1 → ~60%, +2 → ~77%, -1 → ~23%
   return 1 / (1 + Math.exp(-0.8 * diff + 0.4));
 }

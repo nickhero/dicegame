@@ -1,18 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { sql } from 'drizzle-orm';
 import { createTestDb } from '../../src/db/connection';
-import { UserService } from '../../src/services/UserService';
+import { UserService, hashPassword, verifyPassword } from '../../src/services/UserService';
 import { users } from '../../src/db/schema';
 
 function applyUsersSchema(db: ReturnType<typeof createTestDb>) {
-  db.run(sql`CREATE TABLE IF NOT EXISTS users (
-    id TEXT PRIMARY KEY,
-    display_name TEXT NOT NULL,
-    is_guest INTEGER NOT NULL DEFAULT 1,
-    password_hash TEXT,
-    created_at TEXT NOT NULL,
-    last_seen_at TEXT NOT NULL
-  )`);
+  db.run(sql`CREATE TABLE IF NOT EXISTS users (\n    id TEXT PRIMARY KEY,\n    display_name TEXT NOT NULL,\n    is_guest INTEGER NOT NULL DEFAULT 1,\n    password_hash TEXT,\n    created_at TEXT NOT NULL,\n    last_seen_at TEXT NOT NULL\n  )`);
 }
 
 describe('UserService', () => {
@@ -56,5 +49,25 @@ describe('UserService', () => {
 
     const after = (await service.findById('guest_abc123'))!.lastSeenAt;
     expect(after).not.toBe(before);
+  });
+
+  it('hashes and verifies password correctly', async () => {
+    const hash = await hashPassword('mySecurePassword123');
+    expect(hash).toContain(':');
+    expect(await verifyPassword('mySecurePassword123', hash)).toBe(true);
+    expect(await verifyPassword('wrongPassword', hash)).toBe(false);
+  });
+
+  it('creates registered user and finds by display name', async () => {
+    const hash = await hashPassword('regpass123');
+    const user = await service.createRegisteredUser('usr_registered1', 'TestRegUser', hash);
+    expect(user.id).toBe('usr_registered1');
+    expect(user.displayName).toBe('TestRegUser');
+    expect(user.isGuest).toBe(false);
+    expect(user.passwordHash).toBe(hash);
+
+    const found = await service.findByDisplayName('testreguser');
+    expect(found).toBeDefined();
+    expect(found!.id).toBe('usr_registered1');
   });
 });

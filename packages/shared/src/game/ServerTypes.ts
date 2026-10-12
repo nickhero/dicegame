@@ -44,6 +44,7 @@ export interface WireGameState {
   turnNumber: number;
   phase: 'selectingAttacker' | 'selectingDefender';
   alliances: WireAlliance[];
+  alliancesEnabled: boolean;
   powerUpLocations: WirePowerUp[];
   gameOver: boolean;
   winner: number | null;
@@ -88,6 +89,8 @@ export interface BattleResultPayload {
   defenderTerritoryId: number;
   attackerDice: number[];
   defenderDice: number[];
+  attackerTotal?: number;
+  defenderTotal?: number;
   attackerWins: boolean;
   attackerPlayerIndex: number;
   defenderPlayerIndex: number;
@@ -121,6 +124,13 @@ export interface PlayerConnectionPayload {
 export interface InstantBatchPayload {
   actions: AIActionPayload[];
   finalState: WireGameState;
+}
+
+export interface AllianceProposalPayload {
+  proposalId: string;
+  fromPlayerIndex: number;
+  toPlayerIndex: number;
+  duration: number;
 }
 
 // WebSocket event payloads - Client to Server
@@ -195,6 +205,7 @@ export interface ServerToClientEvents {
   'game:gameOver': (data: GameOverPayload) => void;
   'game:chat': (data: {
     playerIndex: number;
+    senderName: string;
     message: string;
     timestamp: string;
   }) => void;
@@ -204,6 +215,7 @@ export interface ServerToClientEvents {
   'game:instantBatch': (data: InstantBatchPayload) => void;
   'game:spectatorCount': (data: { count: number }) => void;
   'game:readyState': (data: { userId: string; ready: boolean; readyPlayers: string[] }) => void;
+  'game:allianceProposal': (data: AllianceProposalPayload) => void;
 }
 
 export interface ClientToServerEvents {
@@ -243,14 +255,14 @@ export interface ClientToServerEvents {
   ) => void;
   'game:spectate': (
     data: { gameId: string },
-    ack: (res: SocketAck) => void,
+    ack: (res: SocketAck<WireGameState>) => void,
   ) => void;
   'game:leaveSpectate': (
     ack: (res: SocketAck) => void,
   ) => void;
 }
 
-export interface InterServerEvents {}
+export type InterServerEvents = Record<string, never>;
 
 export interface SocketData {
   userId: string;

@@ -36,6 +36,7 @@ const MAP_SHAPE_OPTIONS: { label: string; value: MapShape }[] = [
   { label: 'Diamond', value: 'diamond' },
   { label: 'Ring', value: 'ring' },
   { label: 'Continent', value: 'continent' },
+  { label: 'Islands', value: 'islands' },
 ];
 
 const PANEL_WIDTH = 750;
@@ -61,6 +62,7 @@ export class SetupScene extends Phaser.Scene {
   private shapeBtns: ButtonGroup[] = [];
   private fogOfWarBtn!: { bg: Phaser.GameObjects.Graphics; zone: Phaser.GameObjects.Zone; text: Phaser.GameObjects.Text; redraw: (active: boolean) => void };
   private powerUpsBtn!: { bg: Phaser.GameObjects.Graphics; zone: Phaser.GameObjects.Zone; text: Phaser.GameObjects.Text; redraw: (active: boolean) => void };
+  private alliancesBtn!: { bg: Phaser.GameObjects.Graphics; zone: Phaser.GameObjects.Zone; text: Phaser.GameObjects.Text; redraw: (active: boolean) => void };
   private spectatorBtn!: { bg: Phaser.GameObjects.Graphics; zone: Phaser.GameObjects.Zone; text: Phaser.GameObjects.Text; redraw: (active: boolean) => void };
   private undoEnabledBtn!: { bg: Phaser.GameObjects.Graphics; zone: Phaser.GameObjects.Zone; text: Phaser.GameObjects.Text; redraw: (active: boolean) => void };
   private aiRows: AIRow[] = [];
@@ -186,7 +188,7 @@ export class SetupScene extends Phaser.Scene {
     this.add.text(left + 30, rowY, 'Shape:', LABEL_STYLE);
     this.shapeBtns = MAP_SHAPE_OPTIONS.map((opt, i) => {
       const btn = this.createButton(
-        left + 160 + i * 100, rowY - 5, 85, 30, opt.label,
+        left + 160 + i * 92, rowY - 5, 80, 30, opt.label,
         () => {
           this.config.mapShape = opt.value;
           this.refreshShapeBtns();
@@ -223,9 +225,19 @@ export class SetupScene extends Phaser.Scene {
     this.powerUpsBtn.redraw(this.config.powerUps);
     optX += 125;
 
+    this.alliancesBtn = this.createButton(
+      optX, rowY - 5, 100, 30, 'Alliances',
+      () => {
+        this.config.alliances = !(this.config.alliances ?? true);
+        this.alliancesBtn.redraw(this.config.alliances);
+      },
+    );
+    this.alliancesBtn.redraw(this.config.alliances ?? true);
+    optX += 115;
+
     if (!this.multiplayer) {
       this.spectatorBtn = this.createButton(
-        optX, rowY - 5, 110, 30, 'Spectator',
+        optX, rowY - 5, 95, 30, 'Spectator',
         () => {
           this.config.spectatorMode = !this.config.spectatorMode;
           this.spectatorBtn.redraw(this.config.spectatorMode);
@@ -233,10 +245,10 @@ export class SetupScene extends Phaser.Scene {
         },
       );
       this.spectatorBtn.redraw(this.config.spectatorMode);
-      optX += 125;
+      optX += 105;
 
       this.undoEnabledBtn = this.createButton(
-        optX, rowY - 5, 110, 30, 'Undo',
+        optX, rowY - 5, 75, 30, 'Undo',
         () => {
           this.config.undoEnabled = !this.config.undoEnabled;
           this.undoEnabledBtn.redraw(this.config.undoEnabled);
@@ -930,7 +942,7 @@ export class SetupScene extends Phaser.Scene {
           speed: this.config.speed ?? 'normal',
           powerUps: this.config.powerUps ?? false,
           fogOfWar: this.config.fogOfWar ?? false,
-          alliances: false,
+          alliances: this.config.alliances ?? true,
         },
       });
 

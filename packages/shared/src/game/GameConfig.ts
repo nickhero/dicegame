@@ -15,6 +15,7 @@ export interface GameSetupConfig {
   powerUps: boolean;            // default: false
   spectatorMode: boolean;       // default: false
   undoEnabled: boolean;         // default: true
+  alliances?: boolean;          // default: true
   customAIConfigs?: (CustomAIPreset | null)[];  // per-slot custom configs (indexed same as aiPersonalities)
 }
 
@@ -29,6 +30,7 @@ export const DEFAULT_SETUP: GameSetupConfig = {
   powerUps: false,
   spectatorMode: false,
   undoEnabled: true,
+  alliances: true,
 };
 
 export const TERRITORY_PRESETS = {
@@ -102,7 +104,7 @@ function isValidPersonalities(v: unknown): v is (PersonalityType | 'random' | 'c
   return Array.isArray(v) && v.length <= 5 && v.every((p) => typeof p === 'string' && VALID_PERSONALITIES.has(p));
 }
 
-const VALID_MAP_SHAPES = new Set<string>(['rectangle', 'diamond', 'ring', 'continent']);
+const VALID_MAP_SHAPES = new Set<string>(['rectangle', 'diamond', 'ring', 'continent', 'islands']);
 
 function isValidMapShape(v: unknown): v is MapShape {
   return typeof v === 'string' && VALID_MAP_SHAPES.has(v);

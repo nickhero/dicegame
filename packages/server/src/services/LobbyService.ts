@@ -35,7 +35,7 @@ function validateConfig(config: CreateGameRequest['config']): void {
   if (!validTerritories.includes(config.territoryCount)) {
     throw new LobbyError(GameErrorCode.LOBBY_INVALID_CONFIG, 'Invalid territory count');
   }
-  const validMapShapes = ['rectangle', 'diamond', 'ring', 'continent'];
+  const validMapShapes = ['rectangle', 'diamond', 'ring', 'continent', 'islands'];
   if (!validMapShapes.includes(config.mapShape)) {
     throw new LobbyError(GameErrorCode.LOBBY_INVALID_CONFIG, 'Invalid map shape');
   }

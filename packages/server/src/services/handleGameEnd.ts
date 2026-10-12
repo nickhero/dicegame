@@ -7,7 +7,8 @@ import { AchievementService } from './AchievementService';
  * Save match to history and check achievements for each human player.
  * Shared between gameHandlers (human-triggered game end) and AITurnRunner.
  */
-export async function handleGameEnd(gameId: string, game: ActiveGame, db: AppDatabase): Promise<void> {
+export async function handleGameEnd(gameId: string, game: ActiveGame, db?: AppDatabase | null): Promise<void> {
+  if (!db) return;
   try {
     const matchService = new MatchHistoryService(db);
     const achievementService = new AchievementService(db);

@@ -14,6 +14,7 @@ const DEPTH = 200;
 export class BattleAnimator {
   private scene: Phaser.Scene;
   private objects: Phaser.GameObjects.GameObject[] = [];
+  private timerEvents: Phaser.Time.TimerEvent[] = [];
   private activeResolve: (() => void) | null = null;
   private dismissed = false;
 
@@ -31,14 +32,18 @@ export class BattleAnimator {
     attackerColor: number,
     defenderColor: number,
     attackerWins: boolean,
-    speed = 1
+    speed = 1,
+    attackerTotal?: number,
+    defenderTotal?: number,
   ): Promise<void> {
-    if (this.activeResolve) {
-      this.dismiss();
-    }
+    this.dismiss();
 
-    // Instant speed: skip animation entirely
-    if (speed <= 0) {
+    const atkRolls = attackerRolls ?? [];
+    const defRolls = defenderRolls ?? [];
+    const safeSpeed = typeof speed === 'number' && speed > 0 ? speed : 1;
+
+    // Instant speed or no dice: skip animation entirely
+    if (speed <= 0 || (atkRolls.length === 0 && defRolls.length === 0)) {
       return Promise.resolve();
     }
 
@@ -124,17 +129,17 @@ export class BattleAnimator {
       }
       const allDice: DieInfo[] = [];
 
-      for (let i = 0; i < attackerRolls.length; i++) {
-        const pos = getDicePos(leftX, attackerRolls.length, i);
-        allDice.push({ roll: attackerRolls[i], ...pos, tint: attackerColor, side: 'attacker' });
+      for (let i = 0; i < atkRolls.length; i++) {
+        const pos = getDicePos(leftX, atkRolls.length, i);
+        allDice.push({ roll: atkRolls[i], ...pos, tint: attackerColor, side: 'attacker' });
       }
-      for (let i = 0; i < defenderRolls.length; i++) {
-        const pos = getDicePos(rightX, defenderRolls.length, i);
-        allDice.push({ roll: defenderRolls[i], ...pos, tint: defenderColor, side: 'defender' });
+      for (let i = 0; i < defRolls.length; i++) {
+        const pos = getDicePos(rightX, defRolls.length, i);
+        allDice.push({ roll: defRolls[i], ...pos, tint: defenderColor, side: 'defender' });
       }
 
-      const diceDelay = 100 / speed;
-      const flickerDuration = 200 / speed;
+      const diceDelay = 100 / safeSpeed;
+      const flickerDuration = 200 / safeSpeed;
       let atkRunning = 0;
       let defRunning = 0;
 
@@ -143,12 +148,17 @@ export class BattleAnimator {
         const startTime = d * diceDelay;
 
         this.animateDie(die.x, die.y, die.roll, die.tint, startTime, flickerDuration, () => {
+          if (this.dismissed) return;
           if (die.side === 'attacker') {
             atkRunning += die.roll;
-            atkTotalText.setText(String(atkRunning));
+            if (atkTotalText.active) {
+              atkTotalText.setText(String(atkRunning));
+            }
           } else {
             defRunning += die.roll;
-            defTotalText.setText(String(defRunning));
+            if (defTotalText.active) {
+              defTotalText.setText(String(defRunning));
+            }
           }
         });
       }
@@ -158,9 +168,49 @@ export class BattleAnimator {
         ? (allDice.length - 1) * diceDelay + flickerDuration
         : 0;
 
-      // Show result after 1s pause
-      const resultTime = lastDieSettles + 1000 / speed;
-      s.time.delayedCall(resultTime, () => {
+      const finalAtkTotal = attackerTotal ?? atkRolls.reduce((a, b) => a + b, 0);
+      const finalDefTotal = defenderTotal ?? defRolls.reduce((a, b) => a + b, 0);
+      const shieldBonus = finalDefTotal - defRolls.reduce((a, b) => a + b, 0);
+      const chargeBonus = finalAtkTotal - atkRolls.reduce((a, b) => a + b, 0);
+
+      if (shieldBonus > 0) {
+        const shieldTimer = s.time.delayedCall(lastDieSettles + 150 / safeSpeed, () => {
+          if (this.dismissed) return;
+          if (defTotalText.active) {
+            defTotalText.setText(`${finalDefTotal} (+${shieldBonus} 🛡️)`);
+            defTotalText.setColor('#66ccff');
+          }
+          this.addText(rightX, totalY + 24, `🛡️ +${shieldBonus} DEFENSE`, {
+            fontSize: '12px',
+            fontFamily: 'monospace',
+            fontStyle: 'bold',
+            color: '#44bbff',
+          });
+        });
+        this.timerEvents.push(shieldTimer);
+      }
+
+      if (chargeBonus > 0) {
+        const chargeTimer = s.time.delayedCall(lastDieSettles + 150 / safeSpeed, () => {
+          if (this.dismissed) return;
+          if (atkTotalText.active) {
+            atkTotalText.setText(`${finalAtkTotal} (+${chargeBonus} ⚡)`);
+            atkTotalText.setColor('#ffaa44');
+          }
+          this.addText(leftX, totalY + 24, `⚡ +${chargeBonus} CHARGE`, {
+            fontSize: '12px',
+            fontFamily: 'monospace',
+            fontStyle: 'bold',
+            color: '#ffcc00',
+          });
+        });
+        this.timerEvents.push(chargeTimer);
+      }
+
+      // Show result after pause (with extra time if power-up bonus displayed)
+      const bonusDelay = (shieldBonus > 0 || chargeBonus > 0) ? (350 / safeSpeed) : 0;
+      const resultTime = lastDieSettles + (1000 / safeSpeed) + bonusDelay;
+      const resTimer = s.time.delayedCall(resultTime, () => {
         if (this.dismissed) return;
         const text = attackerWins ? 'VICTORY!' : 'DEFEAT!';
         const color = attackerWins ? '#44ff44' : '#ff4444';
@@ -169,9 +219,11 @@ export class BattleAnimator {
           color, stroke: '#000000', strokeThickness: 3,
         });
       });
+      this.timerEvents.push(resTimer);
 
       // Auto-dismiss 1.5s after result
-      s.time.delayedCall(resultTime + 1500 / speed, () => this.dismiss());
+      const dismissTimer = s.time.delayedCall(resultTime + 1500 / safeSpeed, () => this.dismiss());
+      this.timerEvents.push(dismissTimer);
     });
   }
 
@@ -184,11 +236,15 @@ export class BattleAnimator {
     const numFlickers = 2 + Math.floor(Math.random() * 2);
     const flickerInterval = flickerDuration / (numFlickers + 1);
     const spriteRef: (Phaser.GameObjects.Image | null)[] = [null];
+    const clampedFinalFace = Math.max(1, Math.min(6, Math.round(finalFace || 1)));
 
     for (let f = 0; f < numFlickers; f++) {
-      this.scene.time.delayedCall(startDelay + f * flickerInterval, () => {
+      const timer = this.scene.time.delayedCall(startDelay + f * flickerInterval, () => {
         if (this.dismissed) return;
-        if (spriteRef[0]) spriteRef[0].destroy();
+        if (spriteRef[0]) {
+          try { spriteRef[0].destroy(); } catch { /* ignore */ }
+          spriteRef[0] = null;
+        }
         const face = Math.floor(Math.random() * 6) + 1;
         spriteRef[0] = this.scene.add.image(x, y, `dice_${face}`)
           .setScale(DICE_DISPLAY_SCALE)
@@ -196,18 +252,27 @@ export class BattleAnimator {
           .setDepth(DEPTH + 2);
         this.objects.push(spriteRef[0]);
       });
+      this.timerEvents.push(timer);
     }
 
-    this.scene.time.delayedCall(startDelay + flickerDuration, () => {
+    const settleTimer = this.scene.time.delayedCall(startDelay + flickerDuration, () => {
       if (this.dismissed) return;
-      if (spriteRef[0]) spriteRef[0].destroy();
-      const settled = this.scene.add.image(x, y, `dice_${finalFace}`)
+      if (spriteRef[0]) {
+        try { spriteRef[0].destroy(); } catch { /* ignore */ }
+        spriteRef[0] = null;
+      }
+      const settled = this.scene.add.image(x, y, `dice_${clampedFinalFace}`)
         .setScale(DICE_DISPLAY_SCALE)
         .setTint(tint)
         .setDepth(DEPTH + 2);
       this.objects.push(settled);
-      onSettle();
+      try {
+        onSettle();
+      } catch {
+        /* ignore if text object destroyed */
+      }
     });
+    this.timerEvents.push(settleTimer);
   }
 
   private addText(
@@ -221,21 +286,20 @@ export class BattleAnimator {
     return t;
   }
 
-  private dismiss(): void {
-    if (this.dismissed) return;
-    this.dismissed = true;
+  public dismiss(): void {
+    for (const timer of this.timerEvents) {
+      try { timer.destroy(); } catch { /* already destroyed */ }
+    }
+    this.timerEvents = [];
     for (const obj of this.objects) {
       try { obj.destroy(); } catch { /* already destroyed */ }
     }
     this.objects = [];
+    this.dismissed = true;
     if (this.activeResolve) {
       const resolve = this.activeResolve;
       this.activeResolve = null;
       resolve();
     }
-  }
-
-  destroy(): void {
-    this.dismiss();
   }
 }
