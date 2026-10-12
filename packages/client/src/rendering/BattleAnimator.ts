@@ -32,7 +32,9 @@ export class BattleAnimator {
     attackerColor: number,
     defenderColor: number,
     attackerWins: boolean,
-    speed = 1
+    speed = 1,
+    attackerTotal?: number,
+    defenderTotal?: number,
   ): Promise<void> {
     this.dismiss();
 
@@ -166,8 +168,48 @@ export class BattleAnimator {
         ? (allDice.length - 1) * diceDelay + flickerDuration
         : 0;
 
-      // Show result after 1s pause
-      const resultTime = lastDieSettles + 1000 / safeSpeed;
+      const finalAtkTotal = attackerTotal ?? atkRolls.reduce((a, b) => a + b, 0);
+      const finalDefTotal = defenderTotal ?? defRolls.reduce((a, b) => a + b, 0);
+      const shieldBonus = finalDefTotal - defRolls.reduce((a, b) => a + b, 0);
+      const chargeBonus = finalAtkTotal - atkRolls.reduce((a, b) => a + b, 0);
+
+      if (shieldBonus > 0) {
+        const shieldTimer = s.time.delayedCall(lastDieSettles + 150 / safeSpeed, () => {
+          if (this.dismissed) return;
+          if (defTotalText.active) {
+            defTotalText.setText(`${finalDefTotal} (+${shieldBonus} 🛡️)`);
+            defTotalText.setColor('#66ccff');
+          }
+          this.addText(rightX, totalY + 24, `🛡️ +${shieldBonus} DEFENSE`, {
+            fontSize: '12px',
+            fontFamily: 'monospace',
+            fontStyle: 'bold',
+            color: '#44bbff',
+          });
+        });
+        this.timerEvents.push(shieldTimer);
+      }
+
+      if (chargeBonus > 0) {
+        const chargeTimer = s.time.delayedCall(lastDieSettles + 150 / safeSpeed, () => {
+          if (this.dismissed) return;
+          if (atkTotalText.active) {
+            atkTotalText.setText(`${finalAtkTotal} (+${chargeBonus} ⚡)`);
+            atkTotalText.setColor('#ffaa44');
+          }
+          this.addText(leftX, totalY + 24, `⚡ +${chargeBonus} CHARGE`, {
+            fontSize: '12px',
+            fontFamily: 'monospace',
+            fontStyle: 'bold',
+            color: '#ffcc00',
+          });
+        });
+        this.timerEvents.push(chargeTimer);
+      }
+
+      // Show result after pause (with extra time if power-up bonus displayed)
+      const bonusDelay = (shieldBonus > 0 || chargeBonus > 0) ? (350 / safeSpeed) : 0;
+      const resultTime = lastDieSettles + (1000 / safeSpeed) + bonusDelay;
       const resTimer = s.time.delayedCall(resultTime, () => {
         if (this.dismissed) return;
         const text = attackerWins ? 'VICTORY!' : 'DEFEAT!';
@@ -259,9 +301,5 @@ export class BattleAnimator {
       this.activeResolve = null;
       resolve();
     }
-  }
-
-  destroy(): void {
-    this.dismiss();
   }
 }

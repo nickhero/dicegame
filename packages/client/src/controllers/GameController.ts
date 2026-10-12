@@ -2,6 +2,10 @@ import type {
   GameState,
   AllianceProposal,
   GameError,
+  AIActionPayload,
+  InstantBatchPayload,
+  WirePowerUp,
+  SpeedMode,
 } from '@dicewars/shared';
 
 export interface BattleAnimationData {
@@ -18,6 +22,28 @@ export interface BattleAnimationData {
   defenderPlayerIndex?: number;
 }
 
+export interface DiceDistributionData {
+  playerId: number;
+  deltas: Map<number, number>; // territoryId -> bonus dice count added
+  totalBonus: number;
+}
+
+export interface TurnChangedData {
+  previousPlayerIndex: number;
+  currentPlayerIndex: number;
+  turnNumber: number;
+  bonusDice: number;
+  distribution?: DiceDistributionData;
+  powerUpSpawns?: WirePowerUp[];
+}
+
+export interface ChatMessageData {
+  senderName: string;
+  message: string;
+  playerIndex: number;
+  timestamp?: string;
+}
+
 export interface GameControllerEvents {
   onStateUpdate: (state: GameState, animated?: boolean) => void;
   onBattleResult?: (data: BattleAnimationData) => Promise<void> | void;
@@ -25,11 +51,14 @@ export interface GameControllerEvents {
   onGameOver?: (winner: number | null, stats?: Record<string, unknown>) => void;
   onToast?: (message: string, type?: 'info' | 'warning' | 'error') => void;
   onAllianceProposal?: (proposal: AllianceProposal) => void;
-  onTurnChanged?: (playerIndex: number, turnNumber: number) => void;
+  onTurnChanged?: (data: TurnChangedData) => void;
   onTimerTick?: (secondsRemaining: number) => void;
   onError?: (error: GameError) => void;
   onPlayerDisconnected?: (playerIndex: number, graceSeconds: number) => void;
   onPlayerReconnected?: (playerIndex: number) => void;
+  onAIAction?: (action: AIActionPayload) => void;
+  onInstantBatch?: (batch: InstantBatchPayload) => void;
+  onChat?: (data: ChatMessageData) => void;
 }
 
 export interface IGameController {
@@ -44,5 +73,10 @@ export interface IGameController {
   canUndo(): boolean;
   proposeAlliance(targetIndex: number): Promise<boolean>;
   respondAlliance(proposalId: string, accept: boolean): Promise<void>;
+  sendChat?(message: string): void;
+  start?(): void;
+  setSpeed?(speed: SpeedMode): void;
+  pause?(): void;
+  resume?(): void;
   destroy(): void;
 }

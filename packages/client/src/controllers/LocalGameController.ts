@@ -6,6 +6,7 @@ import {
   useReinforce,
   useFortify,
   formAlliance,
+  areAllied,
   aiWouldAcceptProposal,
   wouldBreakAlliance,
   breakAlliance,
@@ -14,12 +15,17 @@ import {
   SeededRandom,
   GameRecorder,
   GameStats,
-  largestContiguousGroup,
+  SpeedMode,
+  tickAlliances,
 } from '@dicewars/shared';
 import type {
   IGameController,
   GameControllerEvents,
+  DiceDistributionData,
 } from './GameController';
+import { LocalAITurnRunner, type LocalAITurnRunnerOptions } from './LocalAITurnRunner';
+
+export interface LocalGameControllerOptions extends LocalAITurnRunnerOptions {}
 
 export class LocalGameController implements IGameController {
   readonly isOnline = false;
@@ -32,6 +38,8 @@ export class LocalGameController implements IGameController {
   private undoSnapshot: ReturnType<typeof createSnapshot> | null = null;
   private undoUsedThisTurn = false;
   private undoEnabled: boolean;
+  private spectatorMode: boolean;
+  private aiRunner: LocalAITurnRunner;
 
   constructor(
     initialState: GameState,
@@ -41,6 +49,7 @@ export class LocalGameController implements IGameController {
     stats: GameStats,
     undoEnabled: boolean,
     events: GameControllerEvents,
+    options: LocalGameControllerOptions = {},
   ) {
     this.state = initialState;
     this.localPlayerIndex = localPlayerIndex;
@@ -49,6 +58,16 @@ export class LocalGameController implements IGameController {
     this.stats = stats;
     this.undoEnabled = undoEnabled;
     this.events = events;
+    this.spectatorMode = options.spectatorMode ?? false;
+
+    this.aiRunner = new LocalAITurnRunner(
+      this.state,
+      this.rng,
+      this.recorder,
+      this.stats,
+      this.events,
+      options,
+    );
   }
 
   getState(): GameState {
@@ -61,6 +80,35 @@ export class LocalGameController implements IGameController {
 
   canUndo(): boolean {
     return this.undoEnabled && this.undoSnapshot !== null && !this.undoUsedThisTurn;
+  }
+
+  start(): void {
+    const currentPlayer = this.state.players[this.state.currentPlayerIndex];
+    if (
+      this.state.phase !== 'gameOver' &&
+      this.state.winner === null &&
+      (this.spectatorMode || (currentPlayer && !currentPlayer.isHuman && currentPlayer.isAlive))
+    ) {
+      this.aiRunner.runAITurns().catch((err) => {
+        console.error('Error starting AI turn runner:', err);
+      });
+    }
+  }
+
+  setSpeed(speed: SpeedMode): void {
+    this.aiRunner.setSpeed(speed);
+  }
+
+  pause(): void {
+    this.aiRunner.pause();
+  }
+
+  resume(): void {
+    this.aiRunner.resume();
+  }
+
+  isAITurnRunning(): boolean {
+    return this.aiRunner.getIsRunning();
   }
 
   async attack(fromId: number, toId: number): Promise<boolean> {
@@ -125,26 +173,67 @@ export class LocalGameController implements IGameController {
     this.undoUsedThisTurn = false;
 
     const previousPlayer = this.state.currentPlayerIndex;
-    const player = this.state.players[previousPlayer];
-    const playerTerritories = player
-      ? this.state.territories.filter((t) => t.owner === player.id).map((t) => t.id)
-      : [];
-    const bonusDice = playerTerritories.length > 0
-      ? largestContiguousGroup(playerTerritories, this.state.adjacency)
-      : 0;
+    const diceBefore = this.snapshotDice(previousPlayer);
 
-    endTurn(this.state, this.rng);
+    const { spawn } = endTurn(this.state, this.rng);
+
+    const diceAfter = this.snapshotDice(previousPlayer);
+    const deltas = new Map<number, number>();
+    let totalBonus = 0;
+    diceAfter.forEach((count, id) => {
+      const prev = diceBefore.get(id) ?? 0;
+      if (count > prev) {
+        const diff = count - prev;
+        deltas.set(id, diff);
+        totalBonus += diff;
+      }
+    });
+
+    const distribution: DiceDistributionData = {
+      playerId: previousPlayer,
+      deltas,
+      totalBonus,
+    };
 
     this.recorder.recordAction({
       type: "endTurn",
       playerId: previousPlayer,
-      bonusDice,
+      bonusDice: totalBonus,
     });
     this.recorder.endCurrentTurn();
+    this.stats.recordTurnStart(this.state);
     this.recorder.startTurn(this.state.turnNumber, this.state.currentPlayerIndex);
 
-    this.events.onTurnChanged?.(this.state.currentPlayerIndex, this.state.turnNumber);
+    if (this.state.allianceState) {
+      this.processAllianceTick();
+    }
+
+    this.events.onTurnChanged?.({
+      previousPlayerIndex: previousPlayer,
+      currentPlayerIndex: this.state.currentPlayerIndex,
+      turnNumber: this.state.turnNumber,
+      bonusDice: totalBonus,
+      distribution,
+      powerUpSpawns: spawn ? [{ territoryId: spawn.territoryId, type: spawn.powerUpType }] : undefined,
+    });
     this.events.onStateUpdate(this.state);
+
+    if (this.state.winner !== null) {
+      this.events.onGameOver?.(this.state.winner);
+      return;
+    }
+
+    // If next player is AI or spectator mode, run AI turns
+    const nextPlayer = this.state.players[this.state.currentPlayerIndex];
+    if (
+      this.state.phase !== 'gameOver' &&
+      this.state.winner === null &&
+      (this.spectatorMode || (nextPlayer && !nextPlayer.isHuman && nextPlayer.isAlive))
+    ) {
+      this.aiRunner.runAITurns().catch((err) => {
+        console.error('Error running AI turns:', err);
+      });
+    }
   }
 
   async usePowerUp(
@@ -197,6 +286,17 @@ export class LocalGameController implements IGameController {
     const targetPlayer = this.state.players[targetIndex];
     if (!targetPlayer || !this.state.allianceState) return false;
 
+    const alivePlayers = this.state.players.filter((p) => p.isAlive);
+    if (this.state.players.length > 2 && alivePlayers.length <= 2) {
+      this.events.onToast?.('Cannot form alliances when only 2 players remain', 'warning');
+      return false;
+    }
+
+    if (areAllied(this.state.allianceState, this.localPlayerIndex, targetIndex)) {
+      this.events.onToast?.(`Already allied with ${targetPlayer.name}`, 'info');
+      return false;
+    }
+
     if (!targetPlayer.isHuman) {
       const proposal = { fromPlayer: this.localPlayerIndex, toPlayer: targetIndex, duration: 5 };
       const accepts = aiWouldAcceptProposal(
@@ -208,6 +308,7 @@ export class LocalGameController implements IGameController {
       if (accepts) {
         formAlliance(this.state.allianceState, this.localPlayerIndex, targetIndex, this.state.turnNumber, 5);
         this.events.onEventLog?.(`🤝 Formed alliance with ${targetPlayer.name} (5 turns)!`, 0x44ddff);
+        this.events.onToast?.(`🤝 Alliance formed with ${targetPlayer.name}!`, 'info');
         this.events.onStateUpdate(this.state);
         return true;
       } else {
@@ -244,7 +345,60 @@ export class LocalGameController implements IGameController {
     }
   }
 
+  private snapshotDice(playerId: number): Map<number, number> {
+    const dice = new Map<number, number>();
+    for (const t of this.state.territories) {
+      if (t.owner === playerId) {
+        dice.set(t.id, t.dice);
+      }
+    }
+    return dice;
+  }
+
+  private processAllianceTick(): void {
+    if (!this.state.allianceState) return;
+
+    const tickResult = tickAlliances(this.state.allianceState, this.state, this.rng);
+
+    for (const a of tickResult.expired) {
+      const p1 = this.state.players[a.player1]?.name ?? `Player ${a.player1}`;
+      const p2 = this.state.players[a.player2]?.name ?? `Player ${a.player2}`;
+      this.events.onEventLog?.(`📜 Alliance between ${p1} and ${p2} expired`, 0x999999);
+      this.recorder.recordAction({ type: 'allianceExpired', player1: a.player1, player2: a.player2 });
+    }
+
+    for (const proposal of tickResult.newProposals) {
+      this.recorder.recordAction({
+        type: 'allianceProposal',
+        fromPlayer: proposal.fromPlayer,
+        toPlayer: proposal.toPlayer,
+      });
+
+      const target = this.state.players[proposal.toPlayer];
+      if (target?.isHuman && !this.spectatorMode) {
+        this.events.onAllianceProposal?.({
+          proposalId: `${proposal.fromPlayer}-${proposal.toPlayer}-${this.state.turnNumber}`,
+          fromPlayer: proposal.fromPlayer,
+          toPlayer: proposal.toPlayer,
+          duration: 5,
+        });
+      } else if (target && target.isAlive && target.personality) {
+        if (aiWouldAcceptProposal(this.state.allianceState, this.state, proposal)) {
+          formAlliance(this.state.allianceState, proposal.fromPlayer, proposal.toPlayer, this.state.turnNumber, 5);
+          const p1 = this.state.players[proposal.fromPlayer]?.name ?? `Player ${proposal.fromPlayer}`;
+          this.events.onEventLog?.(`🤝 ${p1} and ${target.name} formed an alliance`, 0x44ddff);
+          this.recorder.recordAction({
+            type: 'allianceFormed',
+            player1: proposal.fromPlayer,
+            player2: proposal.toPlayer,
+            duration: 5,
+          });
+        }
+      }
+    }
+  }
+
   destroy(): void {
-    // Cleanup if needed
+    this.aiRunner.destroy();
   }
 }

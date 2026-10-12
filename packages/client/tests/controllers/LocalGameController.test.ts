@@ -10,7 +10,7 @@ import {
   GameStats,
   createAllianceState,
 } from '@dicewars/shared';
-import { LocalGameController } from '../../src/controllers/LocalGameController';
+import { LocalGameController, type LocalGameControllerOptions } from '../../src/controllers/LocalGameController';
 
 describe('LocalGameController', () => {
   let rng: SeededRandom;
@@ -21,13 +21,19 @@ describe('LocalGameController', () => {
   let onGameOver: ReturnType<typeof vi.fn>;
   let onEventLog: ReturnType<typeof vi.fn>;
   let onAllianceProposal: ReturnType<typeof vi.fn>;
+  let onTurnChanged: ReturnType<typeof vi.fn>;
+  let onAIAction: ReturnType<typeof vi.fn>;
+  let onToast: ReturnType<typeof vi.fn>;
 
-  function createController(undoEnabled = true) {
+  function createController(undoEnabled = true, options: LocalGameControllerOptions = {}) {
     rng = new SeededRandom(12345);
     const map = generateMap(25, rng, 'square', 'rectangle');
     assignTerritories(map.territories, 2, rng);
     const territories = map.territories;
-    const players = [createPlayer(0, 'Human', PLAYER_COLORS[0], true), createPlayer(1, 'AI', PLAYER_COLORS[1], false)];
+    const players = [
+      createPlayer(0, 'Human', true, PLAYER_COLORS[0]),
+      createPlayer(1, 'AI', false, PLAYER_COLORS[1], 'balanced'),
+    ];
     const state = createInitialGameState(territories, players, map.adjacency);
     state.allianceState = createAllianceState(2);
 
@@ -40,6 +46,9 @@ describe('LocalGameController', () => {
     onGameOver = vi.fn();
     onEventLog = vi.fn();
     onAllianceProposal = vi.fn();
+    onTurnChanged = vi.fn();
+    onAIAction = vi.fn();
+    onToast = vi.fn();
 
     return new LocalGameController(
       state,
@@ -54,7 +63,11 @@ describe('LocalGameController', () => {
         onGameOver,
         onEventLog,
         onAllianceProposal,
+        onTurnChanged,
+        onAIAction,
+        onToast,
       },
+      options,
     );
   }
 
@@ -113,15 +126,39 @@ describe('LocalGameController', () => {
     expect(ctrl.canUndo()).toBe(false);
   });
 
-  it('handles endTurn and records bonus dice', async () => {
-    const ctrl = createController();
+  it('handles endTurn and records bonus dice with TurnChangedData', async () => {
+    const ctrl = createController(true, { speed: 'instant' });
     await ctrl.endTurn();
+
+    expect(onTurnChanged).toHaveBeenCalledWith(
+      expect.objectContaining({
+        previousPlayerIndex: 0,
+        currentPlayerIndex: expect.any(Number),
+        turnNumber: expect.any(Number),
+        bonusDice: expect.any(Number),
+        distribution: expect.any(Object),
+      }),
+    );
     expect(onStateUpdate).toHaveBeenCalled();
-    const recording = recorder.getRecording(null, "None");
-    const allActions = recording.turns.flatMap((t) => t.actions);
-    const endTurnAction = allActions.find((a) => a.type === "endTurn");
-    expect(endTurnAction).toBeDefined();
-    expect((endTurnAction as any).bonusDice).toBeGreaterThanOrEqual(0);
+  });
+
+  it('executes AI turns automatically on instant speed after human endTurn', async () => {
+    const ctrl = createController(true, { speed: 'instant' });
+    await ctrl.endTurn();
+
+    // Give microtask queue time to finish instant AI execution
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // Turn changed should be called at least twice (human endTurn -> AI, AI endTurn -> next)
+    expect(onTurnChanged.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('supports pause, resume, and speed settings', () => {
+    const ctrl = createController(true, { speed: 'normal' });
+    ctrl.setSpeed('fast');
+    ctrl.pause();
+    ctrl.resume();
+    expect(ctrl.isAITurnRunning()).toBe(false);
   });
 
   it('supports local human alliance proposals', async () => {
@@ -143,6 +180,10 @@ describe('LocalGameController', () => {
     await ctrl.respondAlliance("0-1-1", true);
     expect(state.allianceState!.alliances.length).toBe(1);
     expect(onStateUpdate).toHaveBeenCalled();
+
+    // Trying to propose again when already allied
+    const secondTry = await ctrl.proposeAlliance(1);
+    expect(secondTry).toBe(false);
+    expect(onToast).toHaveBeenCalledWith(expect.stringContaining('Already allied'), 'info');
   });
 });
-

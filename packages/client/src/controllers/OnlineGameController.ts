@@ -6,6 +6,8 @@ import type {
   GameOverPayload,
   PlayerConnectionPayload,
   AllianceProposalPayload,
+  AIActionPayload,
+  InstantBatchPayload,
   GameError,
 } from '@dicewars/shared';
 import { SocketClient } from '../network/SocketClient';
@@ -13,6 +15,7 @@ import { deserializeWireState } from '../network/deserializeState';
 import type {
   IGameController,
   GameControllerEvents,
+  ChatMessageData,
 } from './GameController';
 
 export class OnlineGameController implements IGameController {
@@ -30,6 +33,9 @@ export class OnlineGameController implements IGameController {
   private playerDisconnectedHandler!: (data: PlayerConnectionPayload) => void;
   private playerReconnectedHandler!: (data: PlayerConnectionPayload) => void;
   private allianceProposalHandler!: (data: AllianceProposalPayload) => void;
+  private aiActionHandler!: (action: AIActionPayload) => void;
+  private instantBatchHandler!: (batch: InstantBatchPayload) => void;
+  private chatHandler!: (data: ChatMessageData) => void;
   private errorHandler!: (error: GameError) => void;
 
   constructor(
@@ -69,8 +75,8 @@ export class OnlineGameController implements IGameController {
     this.battleResultHandler = (result: BattleResultPayload) => {
       const atkDice = result.attackerDice ?? [];
       const defDice = result.defenderDice ?? [];
-      const attackerTotal = atkDice.reduce((a, b) => a + b, 0);
-      const defenderTotal = defDice.reduce((a, b) => a + b, 0);
+      const attackerTotal = result.attackerTotal ?? atkDice.reduce((a, b) => a + b, 0);
+      const defenderTotal = result.defenderTotal ?? defDice.reduce((a, b) => a + b, 0);
       this.events.onBattleResult?.({
         attackerId: result.attackerTerritoryId,
         defenderId: result.defenderTerritoryId,
@@ -86,7 +92,13 @@ export class OnlineGameController implements IGameController {
     };
 
     this.turnChangedHandler = (data: TurnChangedPayload) => {
-      this.events.onTurnChanged?.(data.currentPlayerIndex, data.turnNumber);
+      this.events.onTurnChanged?.({
+        previousPlayerIndex: data.previousPlayerIndex,
+        currentPlayerIndex: data.currentPlayerIndex,
+        turnNumber: data.turnNumber,
+        bonusDice: data.bonusDice,
+        powerUpSpawns: data.powerUpSpawns,
+      });
     };
 
     this.gameOverHandler = (data: GameOverPayload) => {
@@ -103,10 +115,28 @@ export class OnlineGameController implements IGameController {
 
     this.allianceProposalHandler = (data: AllianceProposalPayload) => {
       this.events.onAllianceProposal?.({
+        proposalId: data.proposalId,
         fromPlayer: data.fromPlayerIndex,
         toPlayer: data.toPlayerIndex,
         duration: data.duration,
       });
+    };
+
+    this.aiActionHandler = (action: AIActionPayload) => {
+      this.events.onAIAction?.(action);
+    };
+
+    this.instantBatchHandler = (batch: InstantBatchPayload) => {
+      if (batch.finalState.localPlayerIndex !== undefined) {
+        this.localPlayerIndex = batch.finalState.localPlayerIndex;
+      }
+      this.currentState = deserializeWireState(batch.finalState);
+      this.events.onInstantBatch?.(batch);
+      this.events.onStateUpdate(this.currentState);
+    };
+
+    this.chatHandler = (data: ChatMessageData) => {
+      this.events.onChat?.(data);
     };
 
     this.errorHandler = (error: GameError) => {
@@ -120,6 +150,9 @@ export class OnlineGameController implements IGameController {
     this.socketClient.on('game:playerDisconnected', this.playerDisconnectedHandler);
     this.socketClient.on('game:playerReconnected', this.playerReconnectedHandler);
     this.socketClient.on('game:allianceProposal', this.allianceProposalHandler);
+    this.socketClient.on('game:aiAction', this.aiActionHandler);
+    this.socketClient.on('game:instantBatch', this.instantBatchHandler);
+    this.socketClient.on('game:chat', this.chatHandler);
     this.socketClient.on('game:error', this.errorHandler);
   }
 
@@ -152,11 +185,21 @@ export class OnlineGameController implements IGameController {
 
   async proposeAlliance(targetIndex: number): Promise<boolean> {
     const ack = await this.socketClient.proposeAlliance(targetIndex);
-    return ack.success;
+    if (!ack.success) {
+      if (ack.error?.message) {
+        this.events.onToast?.(ack.error.message, 'warning');
+      }
+      return false;
+    }
+    return true;
   }
 
   async respondAlliance(proposalId: string, accept: boolean): Promise<void> {
     await this.socketClient.respondAlliance(proposalId, accept);
+  }
+
+  sendChat(message: string): void {
+    this.socketClient.sendChat(message);
   }
 
   destroy(): void {
@@ -167,6 +210,9 @@ export class OnlineGameController implements IGameController {
     this.socketClient.off('game:playerDisconnected', this.playerDisconnectedHandler);
     this.socketClient.off('game:playerReconnected', this.playerReconnectedHandler);
     this.socketClient.off('game:allianceProposal', this.allianceProposalHandler);
+    this.socketClient.off('game:aiAction', this.aiActionHandler);
+    this.socketClient.off('game:instantBatch', this.instantBatchHandler);
+    this.socketClient.off('game:chat', this.chatHandler);
     this.socketClient.off('game:error', this.errorHandler);
   }
 }

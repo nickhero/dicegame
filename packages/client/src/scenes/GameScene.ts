@@ -3,37 +3,26 @@ import {
   GameState, createInitialGameState, Territory,
   createPlayer,
   generateMap, assignTerritories,
-  canAttackFrom, isValidAttack, executeAttack, endTurn,
-  shouldAISurrender, distributeSurrenderedTerritories,
+  canAttackFrom, isValidAttack,
   getAttackableTerritories, getValidTargets,
   PersonalityType, getRandomPersonality, customPresetToPersonality,
-  PERSONALITIES,
   SPEED_CONFIGS, GameSetupConfig, DEFAULT_SETUP,
   getVisibleTerritories,
-  POWER_UPS, useAIPowerUps,
-  selectBestMove,
+  POWER_UPS,
   estimateWinProbability,
   GameRecorder,
   saveMatch,
   checkAchievements, saveUnlocked, AchievementContext,
   SeededRandom,
   GameStats,
-  createAllianceState, wouldBreakAlliance, breakAlliance,
-  tickAlliances, formAlliance, aiWouldAcceptProposal,
-  useReinforce, useFortify, MAX_DICE_PER_TERRITORY, areAllied, getAllies,
+  createAllianceState, wouldBreakAlliance, breakAlliance, areAllied,
   AllianceProposal,
-  createSnapshot, restoreSnapshot,
-  PLAYER_COLORS, GAME_WIDTH, GAME_HEIGHT,
+  PLAYER_COLORS, GAME_WIDTH,
   GameErrorCode,
 } from '@dicewars/shared';
 import type {
-  BattleResultPayload,
-  TurnChangedPayload,
   AIActionPayload,
   InstantBatchPayload,
-  GameOverPayload,
-  PlayerConnectionPayload,
-  AllianceProposalPayload,
   WireGameState,
   WirePowerUp,
   GameError,
@@ -50,7 +39,15 @@ import { EventLog } from '../rendering/EventLog';
 import { TerritoryEffects } from '../rendering/TerritoryEffects';
 import { SoundManager } from '../rendering/SoundManager';
 import { ToastManager } from '../rendering/ToastManager';
-import type { IGameController } from '../controllers/GameController';
+import { DialogManager } from '../rendering/DialogManager';
+import { ChatManager } from '../rendering/ChatManager';
+import type {
+  IGameController,
+  GameControllerEvents,
+  DiceDistributionData,
+  TurnChangedData,
+  BattleAnimationData,
+} from '../controllers/GameController';
 import { LocalGameController } from '../controllers/LocalGameController';
 import { OnlineGameController } from '../controllers/OnlineGameController';
 
@@ -65,50 +62,30 @@ export class GameScene extends Phaser.Scene {
   private territoryEffects!: TerritoryEffects;
   private soundManager!: SoundManager;
   private gameStats!: GameStats;
+  private toastManager!: ToastManager;
+  private dialogManager!: DialogManager;
+  private chatManager!: ChatManager;
+
   private isProcessing = false;
   private hoveredTerritoryId: number | null = null;
-  private helpOverlay: Phaser.GameObjects.Container | null = null;
-  private confirmDialog: Phaser.GameObjects.Container | null = null;
-  private surrenderDialog: Phaser.GameObjects.Container | null = null;
-  private exitDialog: Phaser.GameObjects.Container | null = null;
-  private isDialogOpen = false;
-  private seedText: Phaser.GameObjects.Text | null = null;
-  private allianceDialog: Phaser.GameObjects.Container | null = null;
-  private allianceProposalResolver: (() => void) | null = null;
-  private speed: GameSetupConfig['speed'] = 'normal';
-  private fogOfWarEnabled = false;
-  private setupConfig!: GameSetupConfig;
-  private powerUpPopup: Phaser.GameObjects.Container | null = null;
   private fortifyMode = false;
   private fortifySourceId: number | null = null;
   private spectatorMode = false;
-  private spectatorPaused = false;
   private spectatorLabel: Phaser.GameObjects.Text | null = null;
-  private undoEnabled = true;
+  private spectatorPaused = false;
   private gameSeed = 0;
-  // Network client for server-based games
+  private seedText: Phaser.GameObjects.Text | null = null;
+  private speed: GameSetupConfig['speed'] = 'normal';
+  private setupConfig!: GameSetupConfig;
+  private fogOfWarEnabled = false;
+  private undoEnabled = true;
   private socketClient: SocketClient | null = null;
   private authClient: AuthClient | null = null;
   private isOnlineGame = false;
-  private toastManager!: ToastManager;
-  private disconnectOverlay: Phaser.GameObjects.Container | null = null;
-  private disconnectTimer: Phaser.Time.TimerEvent | null = null;
   private connectionCleanup: (() => void) | null = null;
   private localPlayerIndex: number | undefined;
   private onlineGameOverStats: Record<string, unknown> | null = null;
-  private undoSnapshot: ReturnType<typeof createSnapshot> | null = null;
-  private undoUsedThisTurn = false;
-  private lastAllianceTickTurn = -1;
-  private controller?: IGameController;
-  // In-Game Chat state
-  private isChatOpen = false;
-  private chatInput = "";
-  private chatContainer: Phaser.GameObjects.Container | null = null;
-  private chatBg: Phaser.GameObjects.Graphics | null = null;
-  private chatDisplayText: Phaser.GameObjects.Text | null = null;
-  private chatCursorVisible = true;
-  private chatCursorTimer: Phaser.Time.TimerEvent | null = null;
-  private chatTriggerBtn: Phaser.GameObjects.Container | null = null;
+  private controller!: IGameController;
 
   constructor() {
     super('GameScene');
@@ -120,27 +97,8 @@ export class GameScene extends Phaser.Scene {
     this.authClient = data?.authClient ?? null;
     this.localPlayerIndex = data?.initialState?.localPlayerIndex;
     this.onlineGameOverStats = null;
-    this.controller = undefined;
     this.isProcessing = false;
-    this.isDialogOpen = false;
-    this.undoSnapshot = null;
-    this.undoUsedThisTurn = false;
-    this.lastAllianceTickTurn = -1;
-    this.isChatOpen = false;
-    this.chatInput = "";
-    this.chatContainer = null;
-    this.chatTriggerBtn = null;
-    this.chatBg = null;
-    this.chatDisplayText = null;
-    this.exitDialog = null;
-    this.confirmDialog = null;
-    this.surrenderDialog = null;
     this.seedText = null;
-    this.allianceDialog = null;
-    this.allianceProposalResolver = null;
-    this.helpOverlay = null;
-    this.disconnectOverlay = null;
-    this.disconnectTimer = null;
     this.connectionCleanup = null;
     this.fortifyMode = false;
     this.fortifySourceId = null;
@@ -164,7 +122,7 @@ export class GameScene extends Phaser.Scene {
     }
     this.speed = this.setupConfig.speed;
 
-    // Online games always use normal speed (no fast/instant)
+    // Online games always use normal speed
     if (this.isOnlineGame) {
       this.speed = 'normal';
     }
@@ -179,16 +137,13 @@ export class GameScene extends Phaser.Scene {
   }
 
   create(): void {
-    // Generate dice textures
     createDiceTextures(this);
 
-    // Online game: state comes from server
     if (this.isOnlineGame && this.gameState) {
       this.fogOfWarEnabled = this.setupConfig.fogOfWar;
-      this.undoEnabled = false; // No undo in online games
+      this.undoEnabled = false;
       this.spectatorMode = this.setupConfig.spectatorMode ?? false;
     } else {
-      // Offline/local game: generate map locally
       this.isOnlineGame = false;
       const rawSeed = this.setupConfig.mapSeed;
       let seed: number;
@@ -253,10 +208,12 @@ export class GameScene extends Phaser.Scene {
       if (this.setupConfig.powerUps) {
         this.gameState.powerUpsEnabled = true;
       }
-      this.gameState.allianceState = createAllianceState(playerCount);
+      if (this.setupConfig.alliances ?? true) {
+        this.gameState.allianceState = createAllianceState(playerCount);
+      }
     }
 
-    // Create renderers
+    // Create renderers and UI managers
     this.mapRenderer = new MapRenderer(this);
     this.diceRenderer = new DiceRenderer(this);
     this.uiRenderer = new UIRenderer(this);
@@ -266,35 +223,22 @@ export class GameScene extends Phaser.Scene {
     this.soundManager = new SoundManager();
     this.gameStats = new GameStats();
     this.toastManager = new ToastManager(this);
-
-    if (!this.isOnlineGame) {
-      const gameRecorder = new GameRecorder();
-      gameRecorder.setInitialState(
-        this.gameState.territories,
-        this.gameState.players,
-        this.gameState.adjacency,
-        !!this.gameState.powerUpsEnabled,
-      );
-      this.gameStats.recordTurnStart(this.gameState);
-      gameRecorder.startTurn(this.gameState.turnNumber, this.gameState.currentPlayerIndex);
-      // Store recorder on scene data for offline game-over
-      this.data.set('gameRecorder', gameRecorder);
-    }
+    this.dialogManager = new DialogManager(this);
+    this.chatManager = new ChatManager(this, {
+      onSendMessage: (msg) => this.controller?.sendChat?.(msg),
+    });
 
     // Setup UI callbacks
     this.uiRenderer.setEndTurnCallback(() => this.onEndTurn());
     this.uiRenderer.setBackCallback(() => this.handleBackClick());
-    if (this.undoEnabled && !this.isOnlineGame) {
-      this.uiRenderer.setUndoCallback(() => this.undoLastAttack());
+    this.uiRenderer.setUndoCallback(() => this.undoLastAttack());
+    this.uiRenderer.setProposeAllianceCallback((targetIndex) => this.proposeAllianceToPlayer(targetIndex));
+
+    if (this.localPlayerIndex === undefined) {
+      const humanIdx = this.gameState.players.findIndex((p) => p.isHuman);
+      this.localPlayerIndex = humanIdx >= 0 ? humanIdx : 0;
     }
-    if (this.isOnlineGame) {
-      this.uiRenderer.setProposeAllianceCallback((targetIndex) => this.proposeAllianceToPlayer(targetIndex));
-      // localPlayerIndex already set from initialState in init()
-      // Fallback: guess from first human player
-      if (this.localPlayerIndex === undefined) {
-        this.localPlayerIndex = this.gameState.players.findIndex((p) => p.isHuman);
-      }
-    }
+
     if (this.spectatorMode) {
       this.uiRenderer.setSpectatorMode(true);
     }
@@ -345,9 +289,6 @@ export class GameScene extends Phaser.Scene {
       this.handleKeyDown(event);
     });
 
-    // Initial render
-    this.refreshDisplay();
-
     // Seed display below HUD panel (offline games only)
     if (!this.isOnlineGame && this.gameSeed > 0) {
       this.seedText = this.add.text(GAME_WIDTH - 195, 352, `Seed: ${this.gameSeed}`, {
@@ -357,7 +298,60 @@ export class GameScene extends Phaser.Scene {
       }).setDepth(100);
     }
 
-    // Setup WebSocket listeners for online games
+    // Setup unified controller events
+    const controllerEvents: GameControllerEvents = {
+      onStateUpdate: (state) => {
+        this.gameState = state;
+        this.refreshDisplay();
+      },
+      onBattleResult: async (res) => {
+        await this.handleControllerBattleResult(res);
+      },
+      onTurnChanged: (data) => {
+        this.handleControllerTurnChanged(data);
+      },
+      onAIAction: (action) => {
+        this.handleControllerAIAction(action);
+      },
+      onInstantBatch: (batch) => {
+        this.handleControllerInstantBatch(batch);
+      },
+      onGameOver: (winner, stats) => {
+        this.onlineGameOverStats = (stats as Record<string, unknown>) ?? null;
+        this.handleGameOver();
+      },
+      onAllianceProposal: (proposal) => {
+        this.showAllianceProposal(proposal);
+      },
+      onEventLog: (msg, color) => {
+        this.eventLog.addEvent(msg, color);
+      },
+      onToast: (msg, type) => {
+        this.toastManager.show(msg, type);
+      },
+      onChat: (data) => {
+        const color = data.playerIndex >= 0 && data.playerIndex < PLAYER_COLORS.length
+          ? PLAYER_COLORS[data.playerIndex]
+          : 0x44ddff;
+        this.eventLog.addEvent(`💬 [${data.senderName}]: ${data.message}`, color);
+      },
+      onError: (error) => {
+        this.handleControllerError(error);
+      },
+      onPlayerDisconnected: (playerIndex, graceSeconds) => {
+        const player = this.gameState.players[playerIndex];
+        if (player) {
+          this.eventLog.addEvent(`🔌 ${player.name} disconnected (${graceSeconds}s grace)`, 0xff8844);
+        }
+      },
+      onPlayerReconnected: (playerIndex) => {
+        const player = this.gameState.players[playerIndex];
+        if (player) {
+          this.eventLog.addEvent(`🔌 ${player.name} reconnected`, 0x44ff88);
+        }
+      },
+    };
+
     if (this.isOnlineGame && this.socketClient) {
       this.controller = new OnlineGameController(
         this.socketClient,
@@ -375,226 +369,116 @@ export class GameScene extends Phaser.Scene {
           alliances: [],
           powerUpLocations: [],
         },
-        {
-          onStateUpdate: (state) => {
-            this.gameState = state;
-            this.refreshDisplay();
-          },
-          onBattleResult: async (res) => {
-            await this.handleControllerBattleResult(res);
-          },
-          onGameOver: (winner, stats) => {
-            this.onlineGameOverStats = stats ?? null;
-            this.handleGameOver();
-          },
-          onAllianceProposal: (proposal) => {
-            this.showAllianceProposal(proposal);
-          },
-          onEventLog: (msg, color) => {
-            this.eventLog.addEvent(msg, color);
-          },
-          onToast: (msg, type) => {
-            this.toastManager.show(msg, type);
-          },
-        }
+        controllerEvents,
       );
-      this.setupSocketListeners();
       this.setupConnectionStateListener();
-      this.uiRenderer.setConnectionState(this.socketClient!.state);
+      this.uiRenderer.setConnectionState(this.socketClient.state);
       this.updateOnlineStatus();
-      this.createChatUI();
+      this.chatManager.create();
       this.eventLog.addEvent('🌐 Online game started', 0x44cc44);
       this.eventLog.addEvent(
         `Turn ${this.gameState.turnNumber} — ${this.gameState.players[this.gameState.currentPlayerIndex]?.name ?? 'Unknown'}'s turn`,
-        0xffffff
+        0xffffff,
       );
-      return;
-    }
-
-    if (this.spectatorMode) {
-      this.spectatorLabel = this.add.text(GAME_WIDTH / 2, 15, '👁 SPECTATING (Space to pause)', {
-        fontSize: '14px',
-        color: '#ffcc00',
-        fontFamily: 'monospace',
-        fontStyle: 'bold',
-        stroke: '#000000',
-        strokeThickness: 3,
-      }).setOrigin(0.5).setDepth(200);
-
-      this.uiRenderer.setStatus('Spectator mode — watching AI battle');
     } else {
-      this.uiRenderer.setStatus('Select a territory to attack from');
-    }
-
-    // Local game: add initial event log entry and start AI turns if needed
-    this.eventLog.addEvent(
-      `Turn ${this.gameState.turnNumber} — ${this.gameState.players[this.gameState.currentPlayerIndex].name}'s turn`,
-      0xffffff
-    );
-    if (this.spectatorMode || !this.gameState.players[this.gameState.currentPlayerIndex].isHuman) {
-      this.time.delayedCall(500, () => this.processAITurns());
-    }
-  }
-
-  // === WebSocket Event Listeners (Online Games) ===
-
-  private setupSocketListeners(): void {
-    if (!this.socketClient) return;
-
-    this.socketClient.on('game:stateUpdate', (wireState: WireGameState) => {
-      const prevTurn = this.gameState.turnNumber;
-      this.gameState = deserializeWireState(wireState);
-      if (wireState.localPlayerIndex !== undefined) {
-        this.localPlayerIndex = wireState.localPlayerIndex;
-      }
-      // Log turn changes
-      if (this.gameState.turnNumber !== prevTurn) {
-        const currentPlayer = this.gameState.players[this.gameState.currentPlayerIndex];
-        this.eventLog.addEvent(
-          `🔄 Turn ${this.gameState.turnNumber} — ${currentPlayer?.name ?? 'Unknown'}'s turn`,
-          PLAYER_COLORS[this.gameState.currentPlayerIndex] ?? 0xffffff
-        );
-      }
-      this.updateOnlineStatus();
-      this.refreshDisplay();
-    });
-
-    this.socketClient.on('game:turnChanged', (data: TurnChangedPayload) => {
-      if (data.bonusDice > 0) {
-        const player = this.gameState.players[data.previousPlayerIndex];
-        if (player) {
-          this.eventLog.addEvent(
-            `${player.name} received ${data.bonusDice} bonus dice`,
-            PLAYER_COLORS[data.previousPlayerIndex]
-          );
-        }
-      }
-      if (data.powerUpSpawns) {
-        for (const spawn of data.powerUpSpawns) {
-          this.logSpawnFromWire(spawn);
-        }
-      }
-      this.eventLog.addEvent(
-        `Turn ${data.turnNumber} — ${this.gameState.players[data.currentPlayerIndex]?.name ?? 'Unknown'}'s turn`,
-        0xffffff
+      const gameRecorder = new GameRecorder();
+      gameRecorder.setInitialState(
+        this.gameState.territories,
+        this.gameState.players,
+        this.gameState.adjacency,
+        !!this.gameState.powerUpsEnabled,
       );
-      this.refreshDisplay();
-    });
+      this.gameStats.recordTurnStart(this.gameState);
+      gameRecorder.startTurn(this.gameState.turnNumber, this.gameState.currentPlayerIndex);
+      this.data.set('gameRecorder', gameRecorder);
 
-    this.socketClient.on('game:aiAction', (action: AIActionPayload) => {
-      const player = this.gameState.players[action.playerIndex];
-      const name = player?.name ?? `Player ${action.playerIndex}`;
-      switch (action.actionType) {
-        case 'attack':
-          // Redundant: battle result with dice score follows immediately
-          break;
-        case 'endTurn':
-          this.eventLog.addEvent(`⏭️ ${name} ends turn`, player?.color ?? 0xffffff);
-          break;
-        case 'powerUp':
-          this.eventLog.addEvent(`✨ ${name} uses ${action.details.type ?? 'power-up'}`, player?.color ?? 0xffffff);
-          break;
-        case 'surrender':
-          this.eventLog.addEvent(`🏳️ ${name} surrenders`, 0xff4444);
-          this.soundManager.playElimination();
-          break;
-        case 'alliance':
-          this.eventLog.addEvent(`🤝 ${name} alliance action`, 0x44ddff);
-          break;
-      }
-    });
+      this.controller = new LocalGameController(
+        this.gameState,
+        this.localPlayerIndex ?? 0,
+        this.rng,
+        gameRecorder,
+        this.gameStats,
+        this.undoEnabled,
+        controllerEvents,
+        {
+          speed: this.speed,
+          fogOfWar: this.fogOfWarEnabled,
+          spectatorMode: this.spectatorMode,
+        },
+      );
 
-    this.socketClient.on('game:instantBatch', (batch: InstantBatchPayload) => {
-      for (const action of batch.actions) {
-        const player = this.gameState.players[action.playerIndex];
-        const name = player?.name ?? `Player ${action.playerIndex}`;
-        this.eventLog.addEvent(`⚡ ${name}: ${action.actionType}`, player?.color ?? 0xffffff);
-      }
-      if (batch.finalState.localPlayerIndex !== undefined) {
-        this.localPlayerIndex = batch.finalState.localPlayerIndex;
-      }
-      this.gameState = deserializeWireState(batch.finalState);
-      this.refreshDisplay();
-    });
+      if (this.spectatorMode) {
+        this.spectatorLabel = this.add.text(GAME_WIDTH / 2, 15, '👁 SPECTATING (Space to pause)', {
+          fontSize: '14px',
+          color: '#ffcc00',
+          fontFamily: 'monospace',
+          fontStyle: 'bold',
+          stroke: '#000000',
+          strokeThickness: 3,
+        }).setOrigin(0.5).setDepth(200);
 
-    this.socketClient.on('game:playerDisconnected', (data: PlayerConnectionPayload) => {
-      const player = this.gameState.players[data.playerIndex];
-      if (player) {
-        this.eventLog.addEvent(`🔌 ${player.name} disconnected (${data.graceSeconds ?? 60}s grace)`, 0xff8844);
+        this.uiRenderer.setStatus('Spectator mode — watching AI battle');
+      } else {
+        this.uiRenderer.setStatus('Select a territory to attack from');
       }
-    });
 
-    this.socketClient.on('game:playerReconnected', (data: PlayerConnectionPayload) => {
-      const player = this.gameState.players[data.playerIndex];
-      if (player) {
-        this.eventLog.addEvent(`🔌 ${player.name} reconnected`, 0x44ff88);
-      }
-    });
+      this.eventLog.addEvent(
+        `Turn ${this.gameState.turnNumber} — ${this.gameState.players[this.gameState.currentPlayerIndex].name}'s turn`,
+        0xffffff,
+      );
+      this.controller.start?.();
+    }
 
-    this.socketClient.on('game:chat', (data) => {
-      const color = data.playerIndex >= 0 && data.playerIndex < PLAYER_COLORS.length
-        ? PLAYER_COLORS[data.playerIndex]
-        : 0x44ddff;
-      this.eventLog.addEvent(`💬 [${data.senderName}]: ${data.message}`, color);
-    });
-
-    this.socketClient.on('game:error', (error: GameError) => {
-      switch (error.code) {
-        case GameErrorCode.GAME_NOT_YOUR_TURN:
-          this.toastManager.show('Not your turn!', 'warning');
-          break;
-        case GameErrorCode.GAME_INVALID_TERRITORY:
-        case GameErrorCode.GAME_TERRITORY_NOT_ADJACENT:
-        case GameErrorCode.GAME_TERRITORY_OWN:
-          this.toastManager.show('Invalid target', 'error');
-          break;
-        case GameErrorCode.AUTH_TOKEN_EXPIRED:
-          this.toastManager.show('Session expired. Please log in again.', 'error');
-          break;
-        default:
-          this.toastManager.show(error.message, 'error');
-          break;
-      }
-    });
+    // Initial render
+    this.refreshDisplay();
   }
 
   private handleKeyDown(event: KeyboardEvent): void {
-    if (this.isChatOpen) {
-      if (event.key === "Escape") {
-        this.closeChatInput();
-        return;
-      }
-      if (event.key === "Enter") {
-        this.sendChatMessage();
-        return;
-      }
-      if (event.key === "Backspace") {
-        this.chatInput = this.chatInput.slice(0, -1);
-        this.updateChatInputDisplay();
-        return;
-      }
-      if (event.key.length === 1 && this.chatInput.length < 140) {
-        this.chatInput += event.key;
-        this.updateChatInputDisplay();
-        return;
-      }
+    if (this.chatManager.handleKeyDown(event)) {
       return;
     }
 
-    if (event.key === "Enter" && this.isOnlineGame && !this.isDialogOpen) {
-      this.openChatInput();
+    // Enter opens chat in online mode
+    if (event.key === 'Enter' && this.isOnlineGame && !this.dialogManager.isDialogOpen()) {
+      this.chatManager.open();
       return;
     }
 
     const key = event.key.toUpperCase();
 
-    // H / ? always toggles help overlay (even when it's open)
-    if (key === 'H' || event.key === '?') {
-      this.toggleHelpOverlay();
+    // Escape handles closing dialogs, fortify, deselecting, or showing exit dialog
+    if (key === 'ESCAPE') {
+      if (this.dialogManager.isDialogOpen()) {
+        this.dialogManager.destroy();
+        return;
+      }
+      if (this.fortifyMode) {
+        this.cancelFortify();
+        return;
+      }
+      if (this.dialogManager.hasPowerUpPopup()) {
+        this.dialogManager.dismissPowerUpPopup();
+        return;
+      }
+      if (this.gameState.phase === 'selectingDefender') {
+        this.gameState.phase = 'selectingAttacker';
+        this.gameState.selectedTerritoryId = null;
+        this.territoryEffects.hideAttackLine();
+        this.refreshDisplay();
+        this.uiRenderer.setStatus('Selection cancelled. Pick a territory to attack from.');
+        return;
+      }
+      this.showExitDialog();
       return;
     }
 
-    // 1/2/3 — change speed (local games only; online always normal)
+    // H / ? always toggles help overlay
+    if (key === 'H' || event.key === '?') {
+      this.dialogManager.toggleHelp(this.undoEnabled, this.isOnlineGame);
+      return;
+    }
+
+    // 1/2/3 — change speed (local games only)
     if (!this.isOnlineGame) {
       if (key === '1') { this.setSpeed('normal'); return; }
       if (key === '2') { this.setSpeed('fast'); return; }
@@ -608,8 +492,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    // Block all other shortcuts while a dialog is open
-    if (this.isDialogOpen) return;
+    if (this.dialogManager.isDialogOpen()) return;
 
     // M — toggle mute
     if (key === 'M') {
@@ -619,17 +502,16 @@ export class GameScene extends Phaser.Scene {
 
     // R — restart with confirmation
     if (key === 'R') {
-      this.showConfirmDialog();
+      this.dialogManager.showConfirm('Restart game?', () => this.scene.restart());
       return;
     }
 
-    // S — surrender with confirmation (not in spectator mode)
+    // S — surrender with confirmation
     if (key === 'S' && !this.spectatorMode) {
       this.showSurrenderDialog();
       return;
     }
 
-    // Block gameplay shortcuts while processing
     if (this.isProcessing) return;
     if (this.gameState.phase === 'gameOver') return;
 
@@ -648,191 +530,6 @@ export class GameScene extends Phaser.Scene {
     if (key === 'E' || key === ' ') {
       event.preventDefault();
       this.onEndTurn();
-      return;
-    }
-
-    // Escape — deselect territory / cancel fortify / dismiss popup / exit game
-    if (key === 'ESCAPE') {
-      if (this.isDialogOpen) {
-        this.dismissConfirmDialog();
-        this.dismissSurrenderDialog();
-        this.dismissExitDialog();
-        if (this.helpOverlay) {
-          this.helpOverlay.destroy();
-          this.helpOverlay = null;
-          this.isDialogOpen = false;
-        }
-        return;
-      }
-      if (this.fortifyMode) {
-        this.cancelFortify();
-        return;
-      }
-      this.dismissPowerUpPopup();
-      if (this.gameState.phase === 'selectingDefender') {
-        this.gameState.phase = 'selectingAttacker';
-        this.gameState.selectedTerritoryId = null;
-        this.territoryEffects.hideAttackLine();
-        this.refreshDisplay();
-        this.uiRenderer.setStatus('Selection cancelled. Pick a territory to attack from.');
-        return;
-      }
-      this.showExitDialog();
-      return;
-    }
-  }
-
-  private toggleHelpOverlay(): void {
-    if (this.helpOverlay) {
-      this.helpOverlay.destroy();
-      this.helpOverlay = null;
-      this.isDialogOpen = false;
-      return;
-    }
-
-    this.isDialogOpen = true;
-    const cx = GAME_WIDTH / 2;
-    const cy = GAME_HEIGHT / 2;
-    const w = 350;
-    const h = 370;
-
-    this.helpOverlay = this.add.container(cx, cy).setDepth(1000);
-
-    const bg = this.add.graphics();
-    bg.fillStyle(0x111122, 0.9);
-    bg.fillRoundedRect(-w / 2, -h / 2, w, h, 12);
-    bg.lineStyle(2, 0x6688cc, 1);
-    bg.strokeRoundedRect(-w / 2, -h / 2, w, h, 12);
-    this.helpOverlay.add(bg);
-
-    const title = this.add.text(0, -h / 2 + 25, 'KEYBOARD SHORTCUTS', {
-      fontSize: '18px',
-      color: '#ffffff',
-      fontFamily: 'monospace',
-      fontStyle: 'bold',
-    }).setOrigin(0.5);
-    this.helpOverlay.add(title);
-
-    const shortcuts = [
-      ['E / Space', 'End turn'],
-      ...(this.undoEnabled ? [['Z', 'Undo last attack']] : []),
-      ['Escape', 'Deselect territory'],
-      ...(!this.isOnlineGame ? [['1 / 2 / 3', 'Speed: Normal/Fast/Instant']] : []),
-      ['S', 'Surrender'],
-      ...(!this.isOnlineGame ? [['R', 'Restart game']] : []),
-      ['M', 'Toggle sound'],
-      ['H / ?', 'Toggle this help'],
-    ];
-
-    shortcuts.forEach(([key, desc], i) => {
-      const y = -h / 2 + 75 + i * 36;
-      const keyText = this.add.text(-w / 2 + 30, y, key!, {
-        fontSize: '14px',
-        color: '#88bbff',
-        fontFamily: 'monospace',
-        fontStyle: 'bold',
-      });
-      const descText = this.add.text(-w / 2 + 150, y, desc!, {
-        fontSize: '14px',
-        color: '#cccccc',
-        fontFamily: 'monospace',
-      });
-      this.helpOverlay!.add([keyText, descText]);
-    });
-
-    const footer = this.add.text(0, h / 2 - 30, 'Press H to close', {
-      fontSize: '13px',
-      color: '#888888',
-      fontFamily: 'monospace',
-    }).setOrigin(0.5);
-    this.helpOverlay.add(footer);
-  }
-
-  private showConfirmDialog(): void {
-    if (this.confirmDialog) return;
-
-    this.isDialogOpen = true;
-    const cx = GAME_WIDTH / 2;
-    const cy = GAME_HEIGHT / 2;
-    const w = 260;
-    const h = 130;
-
-    this.confirmDialog = this.add.container(cx, cy).setDepth(1000);
-
-    const bg = this.add.graphics();
-    bg.fillStyle(0x111122, 0.95);
-    bg.fillRoundedRect(-w / 2, -h / 2, w, h, 10);
-    bg.lineStyle(2, 0xcc6666, 1);
-    bg.strokeRoundedRect(-w / 2, -h / 2, w, h, 10);
-    this.confirmDialog.add(bg);
-
-    const label = this.add.text(0, -h / 2 + 30, 'Restart game?', {
-      fontSize: '18px',
-      color: '#ffffff',
-      fontFamily: 'monospace',
-      fontStyle: 'bold',
-    }).setOrigin(0.5);
-    this.confirmDialog.add(label);
-
-    // YES button
-    const yesBtnContainer = this.createDialogButton(-55, 25, 'YES', 0x338833, 0x44aa44, () => {
-      this.dismissConfirmDialog();
-      this.scene.restart();
-    });
-    this.confirmDialog.add(yesBtnContainer);
-
-    // NO button
-    const noBtnContainer = this.createDialogButton(55, 25, 'NO', 0x883333, 0xaa4444, () => {
-      this.dismissConfirmDialog();
-    });
-    this.confirmDialog.add(noBtnContainer);
-  }
-
-  private createDialogButton(
-    x: number, y: number, text: string,
-    color: number, hoverColor: number,
-    onClick: () => void
-  ): Phaser.GameObjects.Container {
-    const btn = this.add.container(x, y);
-
-    const bg = this.add.graphics();
-    bg.fillStyle(color, 1);
-    bg.fillRoundedRect(-40, -15, 80, 30, 5);
-    btn.add(bg);
-
-    const label = this.add.text(0, 0, text, {
-      fontSize: '14px',
-      color: '#ffffff',
-      fontFamily: 'monospace',
-      fontStyle: 'bold',
-    }).setOrigin(0.5);
-    btn.add(label);
-
-    const zone = this.add.zone(0, 0, 80, 30).setInteractive({ useHandCursor: true });
-    zone.on('pointerover', () => {
-      bg.clear();
-      bg.fillStyle(hoverColor, 1);
-      bg.fillRoundedRect(-40, -15, 80, 30, 5);
-    });
-    zone.on('pointerout', () => {
-      bg.clear();
-      bg.fillStyle(color, 1);
-      bg.fillRoundedRect(-40, -15, 80, 30, 5);
-    });
-    zone.on('pointerdown', onClick);
-    btn.add(zone);
-
-    return btn;
-  }
-
-  private dismissConfirmDialog(): void {
-    if (this.confirmDialog) {
-      this.confirmDialog.destroy();
-      this.confirmDialog = null;
-    }
-    // Only clear isDialogOpen if other dialogs aren't also open
-    if (!this.helpOverlay && !this.surrenderDialog && !this.exitDialog) {
-      this.isDialogOpen = false;
     }
   }
 
@@ -845,77 +542,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   private showExitDialog(): void {
-    if (this.exitDialog) return;
-
-    this.isDialogOpen = true;
-    const cx = GAME_WIDTH / 2;
-    const cy = GAME_HEIGHT / 2;
-    const w = 320;
-    const h = 140;
-
-    this.exitDialog = this.add.container(cx, cy).setDepth(1000);
-
-    const dim = this.add.graphics();
-    dim.fillStyle(0x000000, 0.5);
-    dim.fillRect(-cx, -cy, GAME_WIDTH, GAME_HEIGHT);
-    this.exitDialog.add(dim);
-
-    const bg = this.add.graphics();
-    bg.fillStyle(0x111122, 0.95);
-    bg.fillRoundedRect(-w / 2, -h / 2, w, h, 10);
-    bg.lineStyle(2, 0x6688cc, 1);
-    bg.strokeRoundedRect(-w / 2, -h / 2, w, h, 10);
-    this.exitDialog.add(bg);
-
-    const title = this.add.text(0, -h / 2 + 25, this.isOnlineGame ? 'Leave Game?' : 'End Game?', {
-      fontSize: '18px',
-      color: '#ffffff',
-      fontFamily: 'monospace',
-      fontStyle: 'bold',
-    }).setOrigin(0.5);
-    this.exitDialog.add(title);
-
-    const subtitleText = this.isOnlineGame
-      ? 'Leaving will forfeit the match.'
-      : 'Return to main menu?';
-    const subtitle = this.add.text(0, -h / 2 + 52, subtitleText, {
-      fontSize: '13px',
-      color: '#aaaaaa',
-      fontFamily: 'monospace',
-    }).setOrigin(0.5);
-    this.exitDialog.add(subtitle);
-
-    const leaveBtn = this.createDialogButton(-60, 30, 'LEAVE', 0x883333, 0xaa4444, () => {
-      this.dismissExitDialog();
-      this.exitToMenu();
-    });
-    this.exitDialog.add(leaveBtn);
-
-    const cancelBtn = this.createDialogButton(60, 30, 'CANCEL', 0x335588, 0x4477aa, () => {
-      this.dismissExitDialog();
-    });
-    this.exitDialog.add(cancelBtn);
-  }
-
-  private dismissExitDialog(): void {
-    if (this.exitDialog) {
-      this.exitDialog.destroy();
-      this.exitDialog = null;
-    }
-    if (!this.helpOverlay && !this.confirmDialog && !this.surrenderDialog) {
-      this.isDialogOpen = false;
-    }
+    this.dialogManager.showExit(this.isOnlineGame, () => this.exitToMenu());
   }
 
   private async exitToMenu(): Promise<void> {
+    this.controller?.destroy();
     if (this.isOnlineGame) {
-      if (this.controller && this.gameState.phase !== 'gameOver' && !this.spectatorMode) {
-        try {
-          await this.controller.surrender();
-        } catch {
-          // ignore
-        }
-      }
       this.socketClient?.disconnect();
       this.scene.start('LobbyScene', { authClient: this.authClient });
       return;
@@ -924,7 +556,6 @@ export class GameScene extends Phaser.Scene {
   }
 
   private showSurrenderDialog(): void {
-    if (this.surrenderDialog) return;
     if (this.isProcessing) return;
     if (this.gameState.phase === 'gameOver') return;
     const currentPlayer = this.gameState.players[this.gameState.currentPlayerIndex];
@@ -932,80 +563,18 @@ export class GameScene extends Phaser.Scene {
     if (this.isOnlineGame && this.localPlayerIndex !== undefined
       && this.gameState.currentPlayerIndex !== this.localPlayerIndex) return;
 
-    this.isDialogOpen = true;
-    const cx = GAME_WIDTH / 2;
-    const cy = GAME_HEIGHT / 2;
-    const w = 280;
-    const h = 130;
-
-    this.surrenderDialog = this.add.container(cx, cy).setDepth(1000);
-
-    const bg = this.add.graphics();
-    bg.fillStyle(0x221111, 0.95);
-    bg.fillRoundedRect(-w / 2, -h / 2, w, h, 10);
-    bg.lineStyle(2, 0xcc6666, 1);
-    bg.strokeRoundedRect(-w / 2, -h / 2, w, h, 10);
-    this.surrenderDialog.add(bg);
-
-    const label = this.add.text(0, -h / 2 + 30, 'Surrender?', {
-      fontSize: '18px',
-      color: '#ff6666',
-      fontFamily: 'monospace',
-      fontStyle: 'bold',
-    }).setOrigin(0.5);
-    this.surrenderDialog.add(label);
-
-    const yesBtnContainer = this.createDialogButton(-55, 25, 'YES', 0x883333, 0xaa4444, () => {
-      this.dismissSurrenderDialog();
-      this.executeHumanSurrender();
-    });
-    this.surrenderDialog.add(yesBtnContainer);
-
-    const noBtnContainer = this.createDialogButton(55, 25, 'NO', 0x338833, 0x44aa44, () => {
-      this.dismissSurrenderDialog();
-    });
-    this.surrenderDialog.add(noBtnContainer);
-  }
-
-  private dismissSurrenderDialog(): void {
-    if (this.surrenderDialog) {
-      this.surrenderDialog.destroy();
-      this.surrenderDialog = null;
-    }
-    if (!this.helpOverlay && !this.confirmDialog && !this.exitDialog) {
-      this.isDialogOpen = false;
-    }
+    this.dialogManager.showSurrender(() => this.executeHumanSurrender());
   }
 
   private async executeHumanSurrender(): Promise<void> {
-    if (this.controller) {
-      try {
-        await this.controller.surrender();
-        this.refreshDisplay();
-      } catch {
-        this.toastManager.show('Surrender failed', 'error');
-      }
-      return;
+    if (!this.controller) return;
+    try {
+      await this.controller.surrender();
+      this.soundManager.playElimination();
+      this.refreshDisplay();
+    } catch {
+      this.toastManager.show('Surrender failed', 'error');
     }
-
-    const player = this.gameState.players[this.gameState.currentPlayerIndex];
-    if (!player || !player.isAlive) return;
-
-    distributeSurrenderedTerritories(this.gameState, this.gameState.currentPlayerIndex);
-    player.isAlive = false;
-
-    this.eventLog.addEvent(`${player.name} surrendered!`, 0xff6666);
-    this.soundManager.playElimination();
-
-    const alivePlayers = this.gameState.players.filter((p) => p.isAlive);
-    if (alivePlayers.length <= 1) {
-      this.gameState.phase = 'gameOver';
-      this.gameState.winner = alivePlayers.length === 1 ? alivePlayers[0].id : null;
-      this.handleGameOver();
-      return;
-    }
-
-    await this.executeLocalEndTurn();
   }
 
   private onTerritoryClick(territoryId: number): void {
@@ -1015,11 +584,9 @@ export class GameScene extends Phaser.Scene {
 
     const currentPlayer = this.gameState.players[this.gameState.currentPlayerIndex];
     if (!currentPlayer.isHuman) return;
-    // In online games, only allow interaction on our own turn
     if (this.isOnlineGame && this.localPlayerIndex !== undefined
       && this.gameState.currentPlayerIndex !== this.localPlayerIndex) return;
 
-    // Fortify mode: selecting target territory
     if (this.fortifyMode) {
       this.handleFortifyTarget(territoryId);
       return;
@@ -1040,7 +607,6 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    // If territory has a manual power-up, show popup
     if (territory.powerUp === 'reinforce' || territory.powerUp === 'fortify') {
       this.showPowerUpPopup(territory);
       return;
@@ -1060,7 +626,6 @@ export class GameScene extends Phaser.Scene {
   private async handleDefenderSelection(territoryId: number): Promise<void> {
     const attackerId = this.gameState.selectedTerritoryId!;
 
-    // Clicking the same territory deselects it
     if (territoryId === attackerId) {
       this.gameState.phase = 'selectingAttacker';
       this.gameState.selectedTerritoryId = null;
@@ -1070,7 +635,6 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    // Clicking own territory deselects / switches attacker
     if (this.gameState.territories[territoryId].owner === this.gameState.currentPlayerIndex) {
       if (canAttackFrom(territoryId, this.gameState)) {
         this.gameState.selectedTerritoryId = territoryId;
@@ -1092,223 +656,64 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    // Check if attack would break an alliance — require confirmation
     if (this.gameState.allianceState && wouldBreakAlliance(this.gameState.allianceState, this.gameState.currentPlayerIndex, this.gameState.territories[territoryId].owner)) {
       const defenderName = this.gameState.players[this.gameState.territories[territoryId].owner].name;
       this.showAllianceBreakConfirmation(attackerId, territoryId, defenderName);
       return;
     }
 
-    if (this.controller) {
-      this.isProcessing = true;
-      try {
-        const success = await this.controller.attack(attackerId, territoryId);
-        if (!success) {
-          this.toastManager.show('Attack failed', 'error');
-        }
-      } catch (err) {
-        this.toastManager.show('Attack failed', 'error');
-      } finally {
-        this.isProcessing = false;
-        this.gameState.selectedTerritoryId = null;
-        this.gameState.phase = 'selectingAttacker';
-        this.refreshDisplay();
-      }
-      return;
-    }
-
-    await this.executeLocalAttack(attackerId, territoryId);
+    await this.executeAttackAction(attackerId, territoryId);
   }
 
-  private async executeLocalAttack(attackerId: number, territoryId: number): Promise<void> {
-    const attackerColor = PLAYER_COLORS[this.gameState.currentPlayerIndex];
-    const defenderColor = PLAYER_COLORS[this.gameState.territories[territoryId].owner];
-
-    const attacker = this.gameState.territories[attackerId];
-    const defender = this.gameState.territories[territoryId];
-    this.territoryEffects.showAttackLine(
-      attacker.center.x, attacker.center.y,
-      defender.center.x, defender.center.y
-    );
-
+  private async executeAttackAction(attackerId: number, territoryId: number): Promise<void> {
+    if (!this.controller) return;
     this.isProcessing = true;
     try {
-      // Save snapshot for undo
-      if (this.undoEnabled && !this.undoUsedThisTurn) {
-        this.undoSnapshot = createSnapshot(this.gameState);
+      const success = await this.controller.attack(attackerId, territoryId);
+      if (!success) {
+        this.toastManager.show('Attack failed', 'error');
       }
-
-      const attackerPlayerId = this.gameState.currentPlayerIndex;
-      const defenderPlayerId = this.gameState.territories[territoryId].owner;
-      const aliveBeforeAttack = new Set(
-        this.gameState.players.filter((p) => p.isAlive).map((p) => p.id)
-      );
-
-      // Break alliance if attacking ally
-      if (this.gameState.allianceState && wouldBreakAlliance(this.gameState.allianceState, attackerPlayerId, defenderPlayerId)) {
-        breakAlliance(this.gameState.allianceState, attackerPlayerId, defenderPlayerId);
-      }
-
-      const result = executeAttack(attackerId, territoryId, this.gameState, this.rng);
-      const gameRecorder = this.data.get('gameRecorder') as GameRecorder | undefined;
-      this.gameStats.recordAttack(attackerPlayerId, defenderPlayerId, result, this.gameState);
-      gameRecorder?.recordAction({
-        type: 'attack', attackerId, defenderId: territoryId,
-        attackerPlayerId, defenderPlayerId, result,
-      });
-
-      const outcome = result.attackerWins ? 'won' : 'lost';
-      this.eventLog.addEvent(
-        `⚔️ ${this.gameState.players[attackerPlayerId].name} → ${this.gameState.players[defenderPlayerId].name} (${outcome} ${result.attackerTotal} vs ${result.defenderTotal})`,
-        PLAYER_COLORS[attackerPlayerId]
-      );
-
-      // Check for newly eliminated players
-      for (const p of this.gameState.players) {
-        if (aliveBeforeAttack.has(p.id) && !p.isAlive) {
-          this.eventLog.addEvent(`${p.name} was eliminated!`, 0xff4444);
-          gameRecorder?.recordAction({ type: 'elimination', playerId: p.id, eliminatedBy: attackerPlayerId });
-        }
-      }
-
-      // Battle animation
-      this.soundManager.playDiceRoll();
-      await this.battleAnimator.showBattle(
-        result.attackerRolls,
-        result.defenderRolls,
-        attackerColor,
-        defenderColor,
-        result.attackerWins,
-        this.getBattleSpeed()
-      );
-
-      this.territoryEffects.hideAttackLine();
-
-      if (result.attackerWins) {
-        this.territoryEffects.showCapturePulse(defender);
-        this.soundManager.playCapture();
-        this.uiRenderer.setStatus(
-          `Victory! ${result.attackerTotal} vs ${result.defenderTotal} — Territory captured!`
-        );
-      } else {
-        this.soundManager.playAttackFail();
-        this.uiRenderer.setStatus(
-          `Defeat! ${result.attackerTotal} vs ${result.defenderTotal} — Attack failed!`
-        );
-      }
-
-      for (const p of this.gameState.players) {
-        if (aliveBeforeAttack.has(p.id) && !p.isAlive) {
-          this.soundManager.playElimination();
-        }
-      }
-
-      // Check for game over
-      if (this.gameState.phase === 'gameOver') {
-        this.time.delayedCall(this.getDelay(1500), () => this.handleGameOver());
-        return;
-      }
+    } catch {
+      this.toastManager.show('Attack failed', 'error');
     } finally {
-      this.territoryEffects.hideAttackLine();
-      if (this.gameState.phase !== 'gameOver') {
-        this.gameState.phase = 'selectingAttacker';
-        this.gameState.selectedTerritoryId = null;
-      }
       this.isProcessing = false;
+      this.gameState.selectedTerritoryId = null;
+      this.gameState.phase = 'selectingAttacker';
       this.refreshDisplay();
     }
   }
 
-  // ─── Power-Up Activation ──────────────────────────────────
+  // ─── Power-Up Activation ──────────────────────────────────────────
 
   private showPowerUpPopup(territory: Territory): void {
-    this.dismissPowerUpPopup();
-
-    const powerUp = POWER_UPS[territory.powerUp!];
-    const cx = territory.center.x;
-    const cy = territory.center.y - 45;
     const canAttack = canAttackFrom(territory.id, this.gameState);
-
-    this.powerUpPopup = this.add.container(cx, cy).setDepth(200);
-
-    const w = 160;
-    const h = canAttack ? 80 : 55;
-    const bg = this.add.graphics();
-    bg.fillStyle(0x111133, 0.95);
-    bg.fillRoundedRect(-w / 2, -h / 2, w, h, 6);
-    bg.lineStyle(2, 0x6688cc, 1);
-    bg.strokeRoundedRect(-w / 2, -h / 2, w, h, 6);
-    this.powerUpPopup.add(bg);
-
-    // Power-up use button
-    const useLabel = `Use ${powerUp.label}`;
-    const useY = canAttack ? -12 : 0;
-    const useBtn = this.createDialogButton(0, useY, useLabel, 0x336633, 0x44aa44, () => {
-      this.dismissPowerUpPopup();
-      if (territory.powerUp === 'reinforce') {
-        this.activateReinforce(territory.id);
-      } else if (territory.powerUp === 'fortify') {
-        this.activateFortify(territory.id);
-      }
-    });
-    this.powerUpPopup.add(useBtn);
-
-    // Attack button (if territory can also attack)
-    if (canAttack) {
-      const atkBtn = this.createDialogButton(0, 22, 'Attack', 0x663333, 0xaa4444, () => {
-        this.dismissPowerUpPopup();
+    this.dialogManager.showPowerUpPopup(
+      territory,
+      canAttack,
+      () => this.activateReinforce(territory.id),
+      () => this.activateFortify(territory.id),
+      () => {
         this.gameState.selectedTerritoryId = territory.id;
         this.gameState.phase = 'selectingDefender';
         this.refreshDisplay();
         this.uiRenderer.setStatus('Select an enemy territory to attack');
-      });
-      this.powerUpPopup.add(atkBtn);
-    }
-  }
-
-  private dismissPowerUpPopup(): void {
-    if (this.powerUpPopup) {
-      this.powerUpPopup.destroy();
-      this.powerUpPopup = null;
-    }
+      }
+    );
   }
 
   private async activateReinforce(territoryId: number): Promise<void> {
-    if (this.controller) {
-      try {
-        const success = await this.controller.usePowerUp('reinforce', territoryId);
-        if (success) {
-          this.soundManager.playCapture();
-          this.refreshDisplay();
-        } else {
-          this.toastManager.show('Cannot use Reinforce here', 'error');
-        }
-      } catch {
-        this.toastManager.show('Action failed', 'error');
+    if (!this.controller) return;
+    try {
+      const success = await this.controller.usePowerUp('reinforce', territoryId);
+      if (success) {
+        this.soundManager.playCapture();
+        this.refreshDisplay();
+      } else {
+        this.toastManager.show('Cannot use Reinforce here', 'error');
       }
-      this.dismissPowerUpPopup();
-      return;
+    } catch {
+      this.toastManager.show('Action failed', 'error');
     }
-
-    const success = useReinforce(territoryId, this.gameState);
-    if (success) {
-      this.soundManager.playCapture();
-      const owner = this.gameState.players[this.gameState.currentPlayerIndex];
-      this.eventLog.addEvent(
-        `⚡ ${owner?.name ?? 'Player'} reinforced T${territoryId} (+3 dice)`,
-        PLAYER_COLORS[this.gameState.currentPlayerIndex] ?? 0x44dd88
-      );
-      const gameRecorder = this.data.get('gameRecorder') as GameRecorder | undefined;
-      gameRecorder?.recordAction({
-        type: 'reinforce',
-        territoryId,
-        playerId: this.gameState.currentPlayerIndex,
-      });
-      this.refreshDisplay();
-    } else {
-      this.toastManager.show('Cannot use Reinforce here', 'error');
-    }
-    this.dismissPowerUpPopup();
   }
 
   private activateFortify(sourceId: number): void {
@@ -1319,67 +724,21 @@ export class GameScene extends Phaser.Scene {
   }
 
   private async handleFortifyTarget(targetId: number): Promise<void> {
-    const sourceId = this.fortifySourceId!;
-    const target = this.gameState.territories[targetId];
-
-    if (targetId === sourceId || target.owner !== this.gameState.currentPlayerIndex) {
-      this.cancelFortify();
-      return;
-    }
-
-    if (this.isOnlineGame) {
-      if (!this.socketClient) {
-        this.cancelFortify();
-        return;
-      }
-      try {
-        const ack = await this.socketClient.usePowerUp('fortify', targetId, sourceId);
-        if (!ack.success) {
-          this.toastManager.show(ack.error?.message || 'Fortify failed', 'error');
-        }
-      } catch {
-        this.toastManager.show('Connection error', 'error');
-      }
-      this.cancelFortify();
-      return;
-    }
-
-    // Local fortify
-    const source = this.gameState.territories[sourceId];
-    if (!source || !source.neighbors.includes(targetId)) {
-      this.toastManager.show('Target must be an adjacent territory', 'error');
-      this.cancelFortify();
-      return;
-    }
-
-    const count = Math.min(3, source.dice - 1, MAX_DICE_PER_TERRITORY - target.dice);
-    if (count <= 0) {
-      this.toastManager.show('Cannot move dice (target full or source has only 1 die)', 'error');
-      this.cancelFortify();
-      return;
-    }
-
-    const success = useFortify(sourceId, targetId, count, this.gameState);
-    if (success) {
-      this.soundManager.playCapture();
-      const owner = this.gameState.players[this.gameState.currentPlayerIndex];
-      this.eventLog.addEvent(
-        `⚡ ${owner?.name ?? 'Player'} fortified T${sourceId} → T${targetId} (+${count} dice)`,
-        PLAYER_COLORS[this.gameState.currentPlayerIndex] ?? 0x44dd88
-      );
-      const gameRecorder = this.data.get('gameRecorder') as GameRecorder | undefined;
-      gameRecorder?.recordAction({
-        type: 'fortify',
-        fromId: sourceId,
-        toId: targetId,
-        diceCount: count,
-        playerId: this.gameState.currentPlayerIndex,
-      });
-      this.refreshDisplay();
-    } else {
-      this.toastManager.show('Fortify failed', 'error');
-    }
+    const sourceId = this.fortifySourceId;
     this.cancelFortify();
+    if (sourceId === null || !this.controller) return;
+
+    try {
+      const success = await this.controller.usePowerUp('fortify', targetId, sourceId);
+      if (success) {
+        this.soundManager.playCapture();
+        this.refreshDisplay();
+      } else {
+        this.toastManager.show('Fortify failed', 'error');
+      }
+    } catch {
+      this.toastManager.show('Action failed', 'error');
+    }
   }
 
   private cancelFortify(): void {
@@ -1389,568 +748,161 @@ export class GameScene extends Phaser.Scene {
     this.uiRenderer.setStatus('Select a territory to attack from');
   }
 
-  // ─── Undo ────────────────────────────────────────────────
-
   private async undoLastAttack(): Promise<void> {
-    if (this.controller) {
-      if (!this.controller.canUndo()) {
-        this.toastManager.show('Nothing to undo', 'info');
-        return;
-      }
-      try {
-        const success = await this.controller.undo();
-        if (success) {
-          this.refreshDisplay();
-          this.uiRenderer.setStatus('Attack undone. Select a territory to attack from.');
-        }
-      } catch {
-        this.toastManager.show('Undo failed', 'error');
-      }
-      return;
-    }
-
-    if (!this.undoEnabled || !this.undoSnapshot || this.undoUsedThisTurn) {
+    if (!this.controller || !this.controller.canUndo()) {
       this.toastManager.show('Nothing to undo', 'info');
       return;
     }
-
-    restoreSnapshot(this.gameState, this.undoSnapshot);
-    this.undoSnapshot = null;
-    this.undoUsedThisTurn = true;
-    this.eventLog.addEvent('↩️ Attack undone', 0x88bbff);
-    this.refreshDisplay();
-    this.uiRenderer.setStatus('Attack undone. Select a territory to attack from.');
-  }
-
-  // ─── Spectator ───────────────────────────────────────────
-
-  private toggleSpectatorPause(): void {
-    this.spectatorPaused = !this.spectatorPaused;
-    if (this.spectatorLabel) {
-      this.spectatorLabel.setText(
-        this.spectatorPaused
-          ? '⏸ PAUSED (Space to resume)'
-          : '👁 SPECTATING (Space to pause)',
-      );
-    }
-  }
-
-  private logSpawnFromWire(spawn: WirePowerUp): void {
-    const territory = this.gameState.territories[spawn.territoryId];
-    const ownerName = territory ? this.gameState.players[territory.owner]?.name ?? 'Unknown' : 'Unknown';
-    this.eventLog.addEvent(
-      `⚡ ${spawn.type} spawned on T${spawn.territoryId} (${ownerName})`,
-      0xffcc00,
-    );
-  }
-
-  // ─── Connection State ──────────────────────────────────────
-
-  private setupConnectionStateListener(): void {
-    if (!this.socketClient) return;
-
-    this.connectionCleanup = this.socketClient.onConnectionStateChange((state: ConnectionState) => {
-      this.uiRenderer.setConnectionState(state);
-
-      if (state === 'disconnected' || state === 'connecting') {
-        this.showDisconnectOverlay();
-      } else if (state === 'connected') {
-        this.clearDisconnectOverlay();
+    try {
+      const success = await this.controller.undo();
+      if (success) {
+        this.uiRenderer.setStatus('Attack undone. Select a territory to attack from.');
+        this.refreshDisplay();
       }
-    });
-  }
-
-  private updateOnlineStatus(): void {
-    if (!this.isOnlineGame) return;
-    const isMyTurn = this.localPlayerIndex !== undefined &&
-      this.gameState.currentPlayerIndex === this.localPlayerIndex;
-    if (isMyTurn) {
-      this.uiRenderer.setStatus('Your turn — select a territory to attack');
-    } else {
-      const current = this.gameState.players[this.gameState.currentPlayerIndex];
-      const name = current?.name ?? 'Opponent';
-      this.uiRenderer.setStatus(`${name}'s turn — waiting...`);
+    } catch {
+      this.toastManager.show('Undo failed', 'error');
     }
   }
-
-  private showDisconnectOverlay(): void {
-    if (this.disconnectOverlay) return;
-
-    this.disconnectOverlay = this.add.container(0, 0).setDepth(800);
-
-    const bg = this.add.graphics();
-    bg.fillStyle(0x000000, 0.5);
-    bg.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
-    this.disconnectOverlay.add(bg);
-
-    const label = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 10, 'Reconnecting...', {
-      fontSize: '22px',
-      color: '#ffcc44',
-      fontFamily: 'monospace',
-      fontStyle: 'bold',
-    }).setOrigin(0.5);
-    this.disconnectOverlay.add(label);
-
-    // After 10 seconds, show a retry button
-    this.disconnectTimer = this.time.delayedCall(10_000, () => {
-      if (!this.disconnectOverlay) return;
-
-      label.setText('Connection Lost');
-
-      const retryBg = this.add.graphics();
-      retryBg.fillStyle(0xe94560, 1);
-      retryBg.fillRoundedRect(GAME_WIDTH / 2 - 80, GAME_HEIGHT / 2 + 15, 160, 40, 8);
-      this.disconnectOverlay!.add(retryBg);
-
-      const retryText = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 35, 'RETRY', {
-        fontSize: '16px', color: '#ffffff', fontFamily: 'monospace', fontStyle: 'bold',
-      }).setOrigin(0.5);
-      this.disconnectOverlay!.add(retryText);
-
-      const retryZone = this.add.zone(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 35, 160, 40)
-        .setInteractive({ useHandCursor: true })
-        .setDepth(801);
-      retryZone.on('pointerover', () => {
-        retryBg.clear();
-        retryBg.fillStyle(0xff6580, 1);
-        retryBg.fillRoundedRect(GAME_WIDTH / 2 - 80, GAME_HEIGHT / 2 + 15, 160, 40, 8);
-      });
-      retryZone.on('pointerout', () => {
-        retryBg.clear();
-        retryBg.fillStyle(0xe94560, 1);
-        retryBg.fillRoundedRect(GAME_WIDTH / 2 - 80, GAME_HEIGHT / 2 + 15, 160, 40, 8);
-      });
-      retryZone.on('pointerdown', () => {
-        this.clearDisconnectOverlay();
-        // Return to lobby to re-establish connection
-        this.scene.start('LobbyScene', { authClient: this.authClient });
-      });
-      this.disconnectOverlay!.add(retryZone);
-    });
-  }
-
-  private clearDisconnectOverlay(): void {
-    if (this.disconnectTimer) {
-      this.disconnectTimer.destroy();
-      this.disconnectTimer = null;
-    }
-    if (this.disconnectOverlay) {
-      this.disconnectOverlay.destroy();
-      this.disconnectOverlay = null;
-    }
-  }
-
-  // ─── Alliance Proposal ─────────────────────────────────────
 
   private async proposeAllianceToPlayer(targetIndex: number): Promise<void> {
-    if (this.controller) {
-      try {
-        const success = await this.controller.proposeAlliance(targetIndex);
-        if (success && this.isOnlineGame) {
-          const targetName = this.gameState.players[targetIndex]?.name ?? 'Player';
+    if (!this.controller) return;
+    try {
+      const targetName = this.gameState.players[targetIndex]?.name ?? 'Player';
+      const success = await this.controller.proposeAlliance(targetIndex);
+      if (success) {
+        const isNowAllied = this.gameState.allianceState &&
+          this.localPlayerIndex !== undefined &&
+          areAllied(this.gameState.allianceState, this.localPlayerIndex, targetIndex);
+        if (isNowAllied) {
+          this.toastManager.show(`🤝 Alliance formed with ${targetName}!`, 'info');
+          this.eventLog.addEvent(`🤝 Formed alliance with ${targetName} (5 turns)!`, 0x44ddff);
+        } else if (this.isOnlineGame) {
           this.toastManager.show(`Alliance proposed to ${targetName}`, 'info');
         }
-      } catch {
-        this.toastManager.show('Failed to propose alliance', 'error');
       }
-      return;
-    }
-
-    if (!this.gameState.allianceState) return;
-    const targetPlayer = this.gameState.players[targetIndex];
-    if (!targetPlayer) return;
-
-    if (!targetPlayer.isHuman) {
-      const proposal = { fromPlayer: this.gameState.currentPlayerIndex, toPlayer: targetIndex, duration: 5 };
-      const accepts = aiWouldAcceptProposal(
-        this.gameState.allianceState,
-        this.gameState,
-        proposal,
-      );
-
-      if (accepts) {
-        formAlliance(this.gameState.allianceState, this.gameState.currentPlayerIndex, targetIndex, this.gameState.turnNumber, 5);
-        this.eventLog.addEvent(`🤝 Formed alliance with ${targetPlayer.name} (5 turns)!`, 0x44ddff);
-        this.soundManager.playCapture();
-        this.refreshDisplay();
-      } else {
-        this.toastManager.show(`${targetPlayer.name} declined alliance`, 'warning');
-      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to propose alliance';
+      this.toastManager.show(message, 'error');
     }
   }
 
-  // ───────────────────────────────────────────────
-  // Turn Management
-  // ───────────────────────────────────────────────
+  // ─── Turn Management ──────────────────────────────────────────────
 
   private async onEndTurn(): Promise<void> {
     if (this.isProcessing) return;
     if (this.gameState.phase === 'gameOver') return;
 
-    if (this.isOnlineGame) {
-      if (!this.socketClient) return;
-      this.isProcessing = true;
-      try {
-        const ack = await this.socketClient.endTurn();
-        if (!ack.success) {
-          this.toastManager.show(ack.error?.message || 'End turn failed', 'error');
-        }
-      } catch {
-        this.toastManager.show('Connection error', 'error');
-      } finally {
-        this.isProcessing = false;
-      }
-    } else {
-      await this.executeLocalEndTurn();
+    this.isProcessing = true;
+    try {
+      this.gameState.phase = 'selectingAttacker';
+      this.gameState.selectedTerritoryId = null;
+      this.dialogManager.dismissPowerUpPopup();
+      await this.controller.endTurn();
+    } catch {
+      this.toastManager.show('End turn failed', 'error');
+    } finally {
+      this.isProcessing = false;
+      this.refreshDisplay();
     }
   }
 
-  private async executeLocalEndTurn(): Promise<void> {
-    this.isProcessing = true;
-    this.gameState.phase = 'selectingAttacker';
-    this.gameState.selectedTerritoryId = null;
-    this.dismissPowerUpPopup();
+  // ─── Controller Event Handlers ────────────────────────────────────
 
-    // Clear undo state
-    this.undoSnapshot = null;
-    this.undoUsedThisTurn = false;
-
-    const gameRecorder = this.data.get('gameRecorder') as GameRecorder | undefined;
-    const playerIdx = this.gameState.currentPlayerIndex;
-    const player = this.gameState.players[playerIdx];
-    const diceBefore = this.snapshotDice(player.id);
-
-    const { spawn } = endTurn(this.gameState, this.rng);
-
-    if (this.gameState.allianceState) {
-      await this.processAllianceTick();
-    }
-
-    this.logSpawn(spawn);
-
-    const diceAfter = this.snapshotDice(player.id);
-    let bonus = 0;
-    diceAfter.forEach((count, id) => {
-      bonus += count - (diceBefore.get(id) ?? 0);
-    });
-
-    gameRecorder?.recordAction({ type: 'endTurn', playerId: playerIdx, bonusDice: bonus > 0 ? bonus : 0 });
-    gameRecorder?.endCurrentTurn();
-    this.gameStats.recordTurnStart(this.gameState);
-    gameRecorder?.startTurn(this.gameState.turnNumber, this.gameState.currentPlayerIndex);
-
-    if (bonus > 0) {
+  private handleControllerTurnChanged(data: TurnChangedData): void {
+    const previousPlayer = this.gameState.players[data.previousPlayerIndex];
+    if (data.bonusDice > 0 && previousPlayer) {
       this.eventLog.addEvent(
-        `${player.name} received ${bonus} bonus dice`,
-        PLAYER_COLORS[playerIdx]
+        `${previousPlayer.name} received ${data.bonusDice} bonus dice`,
+        PLAYER_COLORS[data.previousPlayerIndex]
       );
-      this.showDiceDistribution(diceBefore, diceAfter, PLAYER_COLORS[playerIdx]);
     }
-
+    if (data.distribution && previousPlayer) {
+      this.showDiceDistribution(data.distribution, PLAYER_COLORS[data.previousPlayerIndex]);
+    }
+    if (data.powerUpSpawns) {
+      for (const spawn of data.powerUpSpawns) {
+        this.logSpawnFromWire(spawn);
+      }
+    }
+    const currentPlayer = this.gameState.players[data.currentPlayerIndex];
     this.eventLog.addEvent(
-      `Turn ${this.gameState.turnNumber} — ${this.gameState.players[this.gameState.currentPlayerIndex].name}'s turn`,
+      `Turn ${data.turnNumber} — ${currentPlayer?.name ?? 'Unknown'}'s turn`,
       0xffffff
     );
 
-    this.refreshDisplay();
-
-    if ((this.gameState.phase as string) === 'gameOver') {
-      this.time.delayedCall(this.getDelay(1000), () => this.handleGameOver());
-      this.isProcessing = false;
-      return;
-    }
-
-    await this.processAITurns();
-  }
-
-  // ─── Local AI Turn Processing ──────────────────────────────
-
-  private async processAITurns(): Promise<void> {
-    const currentPlayer = this.gameState.players[this.gameState.currentPlayerIndex];
-    const gameRecorder = this.data.get('gameRecorder') as GameRecorder | undefined;
-
-    if (!currentPlayer.isHuman && currentPlayer.isAlive) {
-      const playerColorHex = '#' + currentPlayer.color.toString(16).padStart(6, '0');
-      const thinkingText = this.add.text(
-        GAME_WIDTH / 2, 45,
-        `${currentPlayer.name} is thinking.`,
-        {
-          fontSize: '16px',
-          color: playerColorHex,
-          fontFamily: 'monospace',
-          fontStyle: 'bold',
-          stroke: '#000000',
-          strokeThickness: 3,
-        }
-      ).setOrigin(0.5).setDepth(150);
-
-      let dotCount = 1;
-      const thinkingTimer = this.time.addEvent({
-        delay: 400,
-        loop: true,
-        callback: () => {
-          dotCount = (dotCount % 3) + 1;
-          thinkingText.setText(`${currentPlayer.name} is thinking${'.'.repeat(dotCount)}`);
-        },
-      });
-
-      this.uiRenderer.setStatus(`${currentPlayer.name} is thinking...`);
-      this.refreshDisplay();
-
-      await this.delay(this.getDelay(800));
-
-      // Check surrender
-      if (shouldAISurrender(this.gameState, currentPlayer.id)) {
-        thinkingTimer.destroy();
-        thinkingText.destroy();
-        this.eventLog.addEvent(`${currentPlayer.name} surrendered!`, 0xff4444);
-        gameRecorder?.recordAction({ type: 'surrender', playerId: currentPlayer.id });
-        distributeSurrenderedTerritories(this.gameState, currentPlayer.id);
-        this.refreshDisplay();
-
-        if ((this.gameState.phase as string) === 'gameOver') {
-          gameRecorder?.endCurrentTurn();
-          this.time.delayedCall(this.getDelay(1000), () => this.handleGameOver());
-          this.isProcessing = false;
-          return;
-        }
-
-        gameRecorder?.recordAction({ type: 'endTurn', playerId: currentPlayer.id, bonusDice: 0 });
-        gameRecorder?.endCurrentTurn();
-        endTurn(this.gameState, this.rng);
-        this.gameStats.recordTurnStart(this.gameState);
-        gameRecorder?.startTurn(this.gameState.turnNumber, this.gameState.currentPlayerIndex);
-
-        if ((this.gameState.phase as string) === 'gameOver') {
-          gameRecorder?.endCurrentTurn();
-          this.time.delayedCall(this.getDelay(1000), () => this.handleGameOver());
-          this.isProcessing = false;
-          return;
-        }
-
-        await this.advanceToNextPlayer();
-        return;
-      }
-
-      // AI power-ups
-      const aliveBeforeAI = new Set(
-        this.gameState.players.filter((p) => p.isAlive).map((p) => p.id)
-      );
-
-      if (this.gameState.powerUpsEnabled) {
-        const powerUpResults = useAIPowerUps(this.gameState);
-        for (const result of powerUpResults) {
-          this.eventLog.addEvent(`${currentPlayer.name} ${result.description}`, currentPlayer.color);
-          if (result.action) {
-            gameRecorder?.recordAction(result.action);
-          }
-        }
-        if (powerUpResults.length > 0) {
-          this.refreshDisplay();
-          await this.delay(this.getDelay(400));
-        }
-      }
-
-      // AI attacks
-      const personality = currentPlayer.customPersonalityConfig ?? PERSONALITIES[currentPlayer.personality ?? 'balanced'];
-      const maxAttacks = Math.min(personality.maxAttacksPerTurn, 50);
-      let attackCount = 0;
-      let wins = 0;
-      let losses = 0;
-
-      const aiVisibleSet = this.fogOfWarEnabled
-        ? getVisibleTerritories(this.gameState, currentPlayer.id)
-        : undefined;
-
-      while (attackCount < maxAttacks) {
-        const move = selectBestMove(this.gameState, this.rng, undefined, aiVisibleSet);
-        if (!move) break;
-        if (!isValidAttack(move.attackerId, move.defenderId, this.gameState)) break;
-
-        const attackerColor = PLAYER_COLORS[this.gameState.currentPlayerIndex];
-        const defenderColor = PLAYER_COLORS[this.gameState.territories[move.defenderId].owner];
-
-        if (this.speed !== 'instant') {
-          this.mapRenderer.highlightTerritory(
-            this.gameState.territories[move.attackerId], attackerColor
-          );
-          await this.delay(this.getDelay(200));
-          this.mapRenderer.clearHighlight();
-
-          this.mapRenderer.highlightTerritory(
-            this.gameState.territories[move.defenderId], defenderColor
-          );
-          await this.delay(this.getDelay(200));
-          this.mapRenderer.clearHighlight();
-        }
-
-        const attackerT = this.gameState.territories[move.attackerId];
-        const defenderT = this.gameState.territories[move.defenderId];
-        this.territoryEffects.showAttackLine(
-          attackerT.center.x, attackerT.center.y,
-          defenderT.center.x, defenderT.center.y
-        );
-
-        const attackerPlayerId = this.gameState.currentPlayerIndex;
-        const defenderPlayerId = this.gameState.territories[move.defenderId].owner;
-
-        if (this.gameState.allianceState && wouldBreakAlliance(this.gameState.allianceState, attackerPlayerId, defenderPlayerId)) {
-          breakAlliance(this.gameState.allianceState, attackerPlayerId, defenderPlayerId);
-          this.eventLog.addEvent(`⚔️ ${currentPlayer.name} betrayed ${this.gameState.players[defenderPlayerId].name}!`, 0xff6644);
-          gameRecorder?.recordAction({ type: 'allianceBroken', breakerId: attackerPlayerId, otherId: defenderPlayerId });
-        }
-
-        const result = executeAttack(move.attackerId, move.defenderId, this.gameState, this.rng);
-        this.gameStats.recordAttack(attackerPlayerId, defenderPlayerId, result, this.gameState);
-        gameRecorder?.recordAction({
-          type: 'attack', attackerId: move.attackerId, defenderId: move.defenderId,
-          attackerPlayerId, defenderPlayerId, result,
-        });
-        this.refreshDisplay();
-        attackCount++;
-
-        if (result.attackerWins) wins++;
-        else losses++;
-
-        const outcome = result.attackerWins ? 'won' : 'lost';
-        this.eventLog.addEvent(
-          `⚔️ ${currentPlayer.name} → ${this.gameState.players[defenderPlayerId].name} (${outcome} ${result.attackerTotal} vs ${result.defenderTotal})`,
-          currentPlayer.color
-        );
-
-        this.soundManager.playDiceRoll();
-        await this.battleAnimator.showBattle(
-          result.attackerRolls,
-          result.defenderRolls,
-          attackerColor,
-          defenderColor,
-          result.attackerWins,
-          this.getBattleSpeed(2)
-        );
-
-        this.territoryEffects.hideAttackLine();
-        if (result.attackerWins) {
-          this.territoryEffects.showCapturePulse(defenderT);
-        }
-
-        if (this.gameState.phase === 'gameOver') break;
-        await this.delay(this.getDelay(300));
-      }
-
-      thinkingTimer.destroy();
-      thinkingText.destroy();
-
-      if (attackCount > 0) {
-        this.eventLog.addEvent(
-          `${currentPlayer.name} made ${attackCount} attack${attackCount !== 1 ? 's' : ''} (won ${wins}, lost ${losses})`,
-          currentPlayer.color
-        );
+    if (currentPlayer) {
+      if (this.spectatorMode) {
+        this.uiRenderer.setStatus('Spectator mode — watching AI battle');
+      } else if (!currentPlayer.isHuman) {
+        this.uiRenderer.setStatus(`${currentPlayer.name} is thinking...`);
       } else {
-        this.eventLog.addEvent(`${currentPlayer.name} ended without attacking`, currentPlayer.color);
+        this.uiRenderer.setStatus('Select a territory to attack from');
       }
+    }
 
-      // Check eliminations
-      for (const p of this.gameState.players) {
-        if (aliveBeforeAI.has(p.id) && !p.isAlive) {
-          this.eventLog.addEvent(`${p.name} was eliminated!`, 0xff4444);
-          gameRecorder?.recordAction({ type: 'elimination', playerId: p.id, eliminatedBy: currentPlayer.id });
-          this.soundManager.playElimination();
-        }
-      }
+    this.refreshDisplay();
+  }
 
-      if ((this.gameState.phase as string) === 'gameOver') {
-        gameRecorder?.endCurrentTurn();
-        this.refreshDisplay();
-        this.time.delayedCall(this.getDelay(1000), () => this.handleGameOver());
-        this.isProcessing = false;
-        return;
-      }
-
-      // End AI turn
-      const aiDiceBefore = this.snapshotDice(currentPlayer.id);
-      const { spawn: aiSpawn } = endTurn(this.gameState, this.rng);
-
-      if (this.gameState.allianceState) {
-        await this.processAllianceTick();
-      }
-
-      this.logSpawn(aiSpawn);
-
-      const aiDiceAfter = this.snapshotDice(currentPlayer.id);
-      let aiBonus = 0;
-      aiDiceAfter.forEach((count, id) => {
-        aiBonus += count - (aiDiceBefore.get(id) ?? 0);
-      });
-
-      gameRecorder?.recordAction({ type: 'endTurn', playerId: currentPlayer.id, bonusDice: aiBonus > 0 ? aiBonus : 0 });
-      gameRecorder?.endCurrentTurn();
-      this.gameStats.recordTurnStart(this.gameState);
-      gameRecorder?.startTurn(this.gameState.turnNumber, this.gameState.currentPlayerIndex);
-
-      if (aiBonus > 0) {
-        this.eventLog.addEvent(`${currentPlayer.name} received ${aiBonus} bonus dice`, currentPlayer.color);
-        this.showDiceDistribution(aiDiceBefore, aiDiceAfter, currentPlayer.color);
-      }
-
-      this.eventLog.addEvent(
-        `Turn ${this.gameState.turnNumber} — ${this.gameState.players[this.gameState.currentPlayerIndex].name}'s turn`,
-        0xffffff
-      );
-
-      this.refreshDisplay();
-
-      if ((this.gameState.phase as string) === 'gameOver') {
-        gameRecorder?.endCurrentTurn();
-        this.time.delayedCall(this.getDelay(1000), () => this.handleGameOver());
-        this.isProcessing = false;
-        return;
-      }
-
-      await this.advanceToNextPlayer();
-    } else {
-      await this.advanceToNextPlayer();
+  private handleControllerAIAction(action: AIActionPayload): void {
+    const player = this.gameState.players[action.playerIndex];
+    const name = player?.name ?? `Player ${action.playerIndex}`;
+    switch (action.actionType) {
+      case 'attack':
+        break;
+      case 'endTurn':
+        this.eventLog.addEvent(`⏭️ ${name} ends turn`, player?.color ?? 0xffffff);
+        break;
+      case 'powerUp':
+        this.eventLog.addEvent(`✨ ${name} uses ${action.details.type ?? 'power-up'}`, player?.color ?? 0xffffff);
+        break;
+      case 'surrender':
+        this.eventLog.addEvent(`🏳️ ${name} surrenders`, 0xff4444);
+        this.soundManager.playElimination();
+        break;
+      case 'alliance':
+        this.eventLog.addEvent(`🤝 ${name} alliance action`, 0x44ddff);
+        break;
     }
   }
 
-  private async advanceToNextPlayer(): Promise<void> {
-    const nextPlayer = this.gameState.players[this.gameState.currentPlayerIndex];
+  private handleControllerInstantBatch(batch: InstantBatchPayload): void {
+    for (const action of batch.actions) {
+      const player = this.gameState.players[action.playerIndex];
+      const name = player?.name ?? `Player ${action.playerIndex}`;
+      this.eventLog.addEvent(`⚡ ${name}: ${action.actionType}`, player?.color ?? 0xffffff);
+    }
+    if (batch.finalState.localPlayerIndex !== undefined) {
+      this.localPlayerIndex = batch.finalState.localPlayerIndex;
+    }
+    this.gameState = deserializeWireState(batch.finalState);
+    this.refreshDisplay();
+  }
 
-    if (this.spectatorMode) {
-      if (this.spectatorPaused) {
-        this.isProcessing = false;
-        return;
-      }
-      await this.delay(this.getDelay(500));
-      await this.processAITurns();
-    } else if (!nextPlayer.isHuman && nextPlayer.isAlive) {
-      await this.delay(this.getDelay(500));
-      await this.processAITurns();
-    } else {
-      this.isProcessing = false;
-      this.soundManager.playTurnStart();
-      this.uiRenderer.setStatus('Your turn! Select a territory to attack from.');
-      this.refreshDisplay();
+  private handleControllerError(error: GameError): void {
+    switch (error.code) {
+      case GameErrorCode.GAME_NOT_YOUR_TURN:
+        this.toastManager.show('Not your turn!', 'warning');
+        break;
+      case GameErrorCode.GAME_INVALID_TERRITORY:
+      case GameErrorCode.GAME_TERRITORY_NOT_ADJACENT:
+      case GameErrorCode.GAME_TERRITORY_OWN:
+        this.toastManager.show('Invalid target', 'error');
+        break;
+      case GameErrorCode.AUTH_TOKEN_EXPIRED:
+        this.toastManager.show('Session expired. Please log in again.', 'error');
+        break;
+      default:
+        this.toastManager.show(error.message, 'error');
+        break;
     }
   }
 
-
-  // ─── Local Game Helpers ──────────────────────────────────
-
-  private snapshotDice(playerId: number): Map<number, number> {
-    const map = new Map<number, number>();
-    for (const t of this.gameState.territories) {
-      if (t.owner === playerId) map.set(t.id, t.dice);
-    }
-    return map;
-  }
-
-  private showDiceDistribution(before: Map<number, number>, after: Map<number, number>, color: number): void {
-    after.forEach((count, id) => {
-      const prev = before.get(id) ?? 0;
-      if (count > prev) {
+  private showDiceDistribution(distribution: DiceDistributionData, color: number): void {
+    distribution.deltas.forEach((count, id) => {
+      if (count > 0) {
         const t = this.gameState.territories[id];
         if (t) {
-          const label = this.add.text(t.center.x, t.center.y - 20, `+${count - prev}`, {
+          const label = this.add.text(t.center.x, t.center.y - 20, `+${count}`, {
             fontSize: '12px',
             color: '#' + color.toString(16).padStart(6, '0'),
             fontFamily: 'monospace',
@@ -1971,58 +923,60 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private logSpawn(spawn: { territoryId: number; powerUpType: string } | null | undefined): void {
-    if (!spawn) return;
+  private logSpawnFromWire(spawn: WirePowerUp): void {
     const territory = this.gameState.territories[spawn.territoryId];
     const ownerName = territory ? this.gameState.players[territory.owner]?.name ?? 'Unknown' : 'Unknown';
     this.eventLog.addEvent(
-      `⚡ ${spawn.powerUpType} spawned on T${spawn.territoryId} (${ownerName})`,
+      `⚡ ${spawn.type} spawned on T${spawn.territoryId} (${ownerName})`,
       0xffcc00,
     );
   }
 
-  private async processAllianceTick(): Promise<void> {
-    if (!this.gameState.allianceState) return;
-    if (this.gameState.turnNumber <= this.lastAllianceTickTurn) return;
-    this.lastAllianceTickTurn = this.gameState.turnNumber;
-
-    const gameRecorder = this.data.get('gameRecorder') as GameRecorder | undefined;
-    const tickResult = tickAlliances(this.gameState.allianceState, this.gameState, this.rng);
-
-    for (const a of tickResult.expired) {
-      this.eventLog.addEvent(
-        `📜 Alliance between ${this.gameState.players[a.player1].name} and ${this.gameState.players[a.player2].name} expired`,
-        0x999999
+  private toggleSpectatorPause(): void {
+    this.spectatorPaused = !this.spectatorPaused;
+    if (this.spectatorPaused) {
+      this.controller?.pause?.();
+    } else {
+      this.controller?.resume?.();
+    }
+    if (this.spectatorLabel) {
+      this.spectatorLabel.setText(
+        this.spectatorPaused
+          ? '⏸ PAUSED (Space to resume)'
+          : '👁 SPECTATING (Space to pause)',
       );
-      gameRecorder?.recordAction({ type: 'allianceExpired', player1: a.player1, player2: a.player2 });
     }
+  }
 
-    for (const proposal of tickResult.newProposals) {
-      gameRecorder?.recordAction({ type: 'allianceProposal', fromPlayer: proposal.fromPlayer, toPlayer: proposal.toPlayer });
+  private setupConnectionStateListener(): void {
+    if (!this.socketClient) return;
 
-      const target = this.gameState.players[proposal.toPlayer];
-      if (target?.isHuman && !this.spectatorMode) {
-        await this.showAllianceProposal(proposal);
-      } else if (target && target.isAlive && target.personality) {
-        if (aiWouldAcceptProposal(this.gameState.allianceState!, this.gameState, proposal)) {
-          formAlliance(this.gameState.allianceState!, proposal.fromPlayer, proposal.toPlayer, this.gameState.turnNumber);
-          this.eventLog.addEvent(
-            `🤝 ${this.gameState.players[proposal.fromPlayer].name} and ${target.name} formed an alliance`,
-            0x44ddff
-          );
-          gameRecorder?.recordAction({ type: 'allianceFormed', player1: proposal.fromPlayer, player2: proposal.toPlayer, duration: 5 });
-        }
+    this.connectionCleanup = this.socketClient.onConnectionStateChange((state: ConnectionState) => {
+      this.uiRenderer.setConnectionState(state);
+
+      if (state === 'disconnected' || state === 'connecting') {
+        this.dialogManager.showDisconnectOverlay(() => {
+          this.scene.start('LobbyScene', { authClient: this.authClient });
+        });
+      } else if (state === 'connected') {
+        this.dialogManager.clearDisconnectOverlay();
       }
+    });
+  }
+
+  private updateOnlineStatus(): void {
+    if (!this.isOnlineGame) return;
+    const isMyTurn = this.localPlayerIndex !== undefined
+      && this.gameState.currentPlayerIndex === this.localPlayerIndex;
+    const currentPlayer = this.gameState.players[this.gameState.currentPlayerIndex];
+
+    if (this.spectatorMode) {
+      this.uiRenderer.setStatus('Spectating online match');
+    } else if (isMyTurn) {
+      this.uiRenderer.setStatus('Your turn — select a territory to attack from');
+    } else {
+      this.uiRenderer.setStatus(`Waiting for ${currentPlayer?.name ?? 'opponent'}...`);
     }
-  }
-
-  private delay(ms: number): Promise<void> {
-    if (ms <= 0) return Promise.resolve();
-    return new Promise((resolve) => this.time.delayedCall(ms, resolve));
-  }
-
-  private getDelay(baseMs: number): number {
-    return baseMs * SPEED_CONFIGS[this.speed].multiplier;
   }
 
   private getBattleSpeed(baseMultiplier = 1): number {
@@ -2034,6 +988,7 @@ export class GameScene extends Phaser.Scene {
   private setSpeed(newSpeed: GameSetupConfig['speed']): void {
     if (this.speed === newSpeed) return;
     this.speed = newSpeed;
+    this.controller?.setSpeed?.(newSpeed);
     const label = SPEED_CONFIGS[newSpeed].label;
     this.showSpeedNotification(`Speed: ${label}`);
   }
@@ -2068,11 +1023,9 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (this.isOnlineGame) {
-      // Online: deserialize stats from server
       const stats = this.onlineGameOverStats
         ? GameStats.deserializeStats(this.onlineGameOverStats)
         : null;
-      // Determine victory relative to local player
       const isVictory = this.localPlayerIndex !== undefined &&
         winner?.id === this.localPlayerIndex;
       this.socketClient?.disconnect();
@@ -2087,7 +1040,6 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    // Offline: save recording and check achievements
     const gameRecorder = this.data.get('gameRecorder') as GameRecorder | undefined;
     if (!gameRecorder) return;
     gameRecorder.endCurrentTurn();
@@ -2132,140 +1084,46 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private showAllianceProposal(proposal: AllianceProposal): Promise<void> {
-    return new Promise<void>((resolve) => {
-      if (this.isDialogOpen) {
-        resolve();
-        return;
+  private showAllianceProposal(proposal: AllianceProposal): void {
+    if (this.dialogManager.isDialogOpen()) return;
+
+    const fromPlayer = this.gameState.players[proposal.fromPlayer];
+    const fromColor = '#' + (fromPlayer?.color ?? 0xffffff).toString(16).padStart(6, '0');
+
+    this.dialogManager.showAllianceProposal(
+      fromPlayer?.name ?? 'Player',
+      fromColor,
+      async () => {
+        await this.controller?.respondAlliance(proposal.proposalId || String(proposal.fromPlayer), true);
+        this.refreshDisplay();
+      },
+      async () => {
+        await this.controller?.respondAlliance(proposal.proposalId || String(proposal.fromPlayer), false);
+        this.refreshDisplay();
       }
-      this.isDialogOpen = true;
-
-      const fromPlayer = this.gameState.players[proposal.fromPlayer];
-      const fromColor = '#' + fromPlayer.color.toString(16).padStart(6, '0');
-
-      const container = this.add.container(GAME_WIDTH / 2, GAME_HEIGHT / 2).setDepth(600);
-      this.allianceDialog = container;
-      this.allianceProposalResolver = resolve;
-
-      const bg = this.add.graphics();
-      bg.fillStyle(0x1a1a2e, 0.95);
-      bg.fillRoundedRect(-180, -80, 360, 160, 12);
-      bg.lineStyle(2, 0x44ddff, 1);
-      bg.strokeRoundedRect(-180, -80, 360, 160, 12);
-      container.add(bg);
-
-    const title = this.add.text(0, -55, '🤝 Alliance Proposal', {
-      fontSize: '16px', color: '#44ddff', fontFamily: 'monospace', fontStyle: 'bold',
-    }).setOrigin(0.5);
-    container.add(title);
-
-    const msg = this.add.text(0, -20, `${fromPlayer.name} proposes a\nnon-aggression pact (5 turns)`, {
-      fontSize: '13px', color: fromColor, fontFamily: 'monospace', align: 'center',
-    }).setOrigin(0.5);
-    container.add(msg);
-
-    const acceptBtn = this.add.text(-70, 35, '✓ Accept', {
-      fontSize: '14px', color: '#000', fontFamily: 'monospace', fontStyle: 'bold',
-      backgroundColor: '#44dd88', padding: { x: 12, y: 6 },
-    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
-    container.add(acceptBtn);
-
-    const declineBtn = this.add.text(70, 35, '✗ Decline', {
-      fontSize: '14px', color: '#000', fontFamily: 'monospace', fontStyle: 'bold',
-      backgroundColor: '#dd4444', padding: { x: 12, y: 6 },
-    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
-    container.add(declineBtn);
-
-    const cleanup = () => {
-      this.allianceDialog = null;
-      this.allianceProposalResolver = null;
-      container.destroy();
-      this.isDialogOpen = false;
-      resolve();
-    };
-
-    acceptBtn.on('pointerup', async () => {
-      if (this.controller) {
-        await this.controller.respondAlliance(proposal.proposalId || String(proposal.fromPlayer), true);
-      } else if (this.gameState.allianceState) {
-        formAlliance(this.gameState.allianceState, proposal.fromPlayer, proposal.toPlayer, this.gameState.turnNumber, 5);
-        this.eventLog.addEvent(
-          `🤝 Formed alliance with ${fromPlayer.name} (5 turns)!`,
-          0x44ddff
-        );
-        const gameRecorder = this.data.get('gameRecorder') as GameRecorder | undefined;
-        gameRecorder?.recordAction({ type: 'allianceFormed', player1: proposal.fromPlayer, player2: proposal.toPlayer, duration: 5 });
-      }
-      cleanup();
-      this.refreshDisplay();
-    });
-
-    declineBtn.on('pointerup', async () => {
-      if (this.controller) {
-        await this.controller.respondAlliance(proposal.proposalId || String(proposal.fromPlayer), false);
-      }
-      this.eventLog.addEvent(
-        `You declined ${fromPlayer.name}'s alliance proposal`,
-        0xff6644
-      );
-      cleanup();
-    });
-    });
+    );
   }
 
   private showAllianceBreakConfirmation(attackerId: number, defenderId: number, defenderName: string): void {
-    if (this.isDialogOpen) return;
-    this.isDialogOpen = true;
+    if (this.dialogManager.isDialogOpen()) return;
 
-    const container = this.add.container(GAME_WIDTH / 2, GAME_HEIGHT / 2).setDepth(600);
-
-    const bg = this.add.graphics();
-    bg.fillStyle(0x1a1a2e, 0.95);
-    bg.fillRoundedRect(-180, -80, 360, 160, 12);
-    bg.lineStyle(2, 0xff6644, 1);
-    bg.strokeRoundedRect(-180, -80, 360, 160, 12);
-    container.add(bg);
-
-    const title = this.add.text(0, -55, '⚔️ Break Alliance?', {
-      fontSize: '16px', color: '#ff6644', fontFamily: 'monospace', fontStyle: 'bold',
-    }).setOrigin(0.5);
-    container.add(title);
-
-    const msg = this.add.text(0, -20, `This attack will betray your\nalliance with ${defenderName}!`, {
-      fontSize: '13px', color: '#ffffff', fontFamily: 'monospace', align: 'center',
-    }).setOrigin(0.5);
-    container.add(msg);
-
-    const confirmBtn = this.add.text(-70, 35, '⚔️ Betray', {
-      fontSize: '14px', color: '#000', fontFamily: 'monospace', fontStyle: 'bold',
-      backgroundColor: '#ff6644', padding: { x: 12, y: 6 },
-    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
-    container.add(confirmBtn);
-
-    const cancelBtn = this.add.text(70, 35, '← Cancel', {
-      fontSize: '14px', color: '#000', fontFamily: 'monospace', fontStyle: 'bold',
-      backgroundColor: '#888888', padding: { x: 12, y: 6 },
-    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
-    container.add(cancelBtn);
-
-    const cleanup = () => {
-      container.destroy();
-      this.isDialogOpen = false;
-    };
-
-    confirmBtn.on('pointerup', () => {
-      // Server handles alliance break automatically when attacking an ally, but for local:
-      if (!this.isOnlineGame && this.gameState.allianceState) {
-        breakAlliance(this.gameState.allianceState, this.gameState.currentPlayerIndex, this.gameState.territories[defenderId].owner);
+    this.dialogManager.showAllianceBreakConfirmation(
+      defenderName,
+      async () => {
+        if (this.gameState.allianceState) {
+          breakAlliance(this.gameState.allianceState, this.gameState.currentPlayerIndex, this.gameState.territories[defenderId].owner);
+        }
+        this.eventLog.addEvent(`⚔️ You betrayed ${defenderName}!`, 0xff6644);
+        await this.executeAttackAction(attackerId, defenderId);
+      },
+      () => {
+        this.gameState.phase = 'selectingAttacker';
+        this.gameState.selectedTerritoryId = null;
+        this.territoryEffects.hideAttackLine();
+        this.refreshDisplay();
+        this.uiRenderer.setStatus('Attack cancelled.');
       }
-      this.eventLog.addEvent(`⚔️ You betrayed ${defenderName}!`, 0xff6644);
-      cleanup();
-      this.handleDefenderSelection(defenderId);
-    });
-
-    cancelBtn.on('pointerup', () => {
-      cleanup();
-    });
+    );
   }
 
   private refreshDisplay(): void {
@@ -2275,17 +1133,14 @@ export class GameScene extends Phaser.Scene {
       : [];
     const attackable = getAttackableTerritories(this.gameState).map((t) => t.id);
 
-    // Compute fog of war visible set for the human player
     const visibleSet = this.fogOfWarEnabled
-      ? getVisibleTerritories(this.gameState, 0)
+      ? getVisibleTerritories(this.gameState, this.localPlayerIndex ?? 0)
       : undefined;
 
     this.mapRenderer.drawMap(this.gameState, selectedId, validTargets, attackable, visibleSet);
     this.diceRenderer.drawDiceStacks(this.gameState.territories, visibleSet);
     this.uiRenderer.update(this.gameState, this.localPlayerIndex);
-    this.uiRenderer.setUndoVisible(
-      !this.isOnlineGame && this.undoEnabled && this.undoSnapshot !== null && !this.undoUsedThisTurn
-    );
+    this.uiRenderer.setUndoVisible(this.controller?.canUndo() ?? false);
     this.territoryEffects.updateLowDiceWarnings(this.gameState);
   }
 
@@ -2297,7 +1152,6 @@ export class GameScene extends Phaser.Scene {
     const powerUpLabel = territory.powerUp ? POWER_UPS[territory.powerUp].description : undefined;
     const neighborCount = territory.neighbors.length;
 
-    // Calculate attack odds if hovering a valid target
     let attackOdds: number | undefined;
     if (!this.isProcessing && this.gameState.phase === 'selectingDefender') {
       const attackerId = this.gameState.selectedTerritoryId;
@@ -2305,14 +1159,13 @@ export class GameScene extends Phaser.Scene {
         const targets = getValidTargets(attackerId, this.gameState).map((t) => t.id);
         if (targets.includes(territoryId)) {
           const atk = this.gameState.territories[attackerId];
-          attackOdds = estimateWinProbability(atk.dice, territory.dice);
+          attackOdds = estimateWinProbability(atk.dice, territory.dice, atk.powerUp, territory.powerUp);
         }
       }
     }
 
     this.territoryEffects.showTooltip(territory, pointer.x, pointer.y, playerName, powerUpLabel, neighborCount, attackOdds);
 
-    // Preview attack line when hovering a valid target during defender selection
     if (!this.isProcessing && this.gameState.phase === 'selectingDefender') {
       const attackerId = this.gameState.selectedTerritoryId;
       if (attackerId !== null) {
@@ -2330,15 +1183,7 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private async handleControllerBattleResult(result: {
-    attackerId: number;
-    defenderId: number;
-    attackerDice: number[];
-    defenderDice: number[];
-    attackerWon: boolean;
-    attackerPlayerIndex?: number;
-    defenderPlayerIndex?: number;
-  }): Promise<void> {
+  private async handleControllerBattleResult(result: BattleAnimationData): Promise<void> {
     const attackerTerritory = this.gameState.territories[result.attackerId];
     const defenderTerritory = this.gameState.territories[result.defenderId];
     if (!attackerTerritory || !defenderTerritory) return;
@@ -2347,14 +1192,22 @@ export class GameScene extends Phaser.Scene {
     const defenderPlayerIdx = result.defenderPlayerIndex ?? defenderTerritory.owner;
     const attackerColor = PLAYER_COLORS[attackerPlayerIdx] ?? 0xffffff;
     const defenderColor = PLAYER_COLORS[defenderPlayerIdx] ?? 0xffffff;
-    const attackerName = this.gameState.players[attackerPlayerIdx]?.name ?? "?";
-    const defenderName = this.gameState.players[defenderPlayerIdx]?.name ?? "?";
-    const outcome = result.attackerWon ? "won" : "lost";
-    const attackerTotal = result.attackerDice.reduce((sum, d) => sum + d, 0);
-    const defenderTotal = result.defenderDice.reduce((sum, d) => sum + d, 0);
+    const attackerName = this.gameState.players[attackerPlayerIdx]?.name ?? '?';
+    const defenderName = this.gameState.players[defenderPlayerIdx]?.name ?? '?';
+    const outcome = result.attackerWon ? 'won' : 'lost';
+    const attackerTotal = result.attackerTotal ?? result.attackerDice.reduce((sum, d) => sum + d, 0);
+    const defenderTotal = result.defenderTotal ?? result.defenderDice.reduce((sum, d) => sum + d, 0);
+    const defRollSum = result.defenderDice.reduce((sum, d) => sum + d, 0);
+    const atkRollSum = result.attackerDice.reduce((sum, d) => sum + d, 0);
+    const shieldBonus = defenderTotal - defRollSum;
+    const chargeBonus = attackerTotal - atkRollSum;
+    const notes: string[] = [];
+    if (chargeBonus > 0) notes.push(`⚡+${chargeBonus} Charge`);
+    if (shieldBonus > 0) notes.push(`🛡️+${shieldBonus} Shield`);
+    const noteSuffix = notes.length > 0 ? ` [${notes.join(', ')}]` : '';
 
     this.eventLog.addEvent(
-      `⚔️ ${attackerName} → ${defenderName} (${outcome} ${attackerTotal} vs ${defenderTotal})`,
+      `⚔️ ${attackerName} → ${defenderName} (${outcome} ${attackerTotal} vs ${defenderTotal}${noteSuffix})`,
       attackerColor
     );
 
@@ -2370,7 +1223,9 @@ export class GameScene extends Phaser.Scene {
       attackerColor,
       defenderColor,
       result.attackerWon,
-      this.getBattleSpeed(1)
+      this.getBattleSpeed(1),
+      attackerTotal,
+      defenderTotal,
     );
 
     this.territoryEffects.hideAttackLine();
@@ -2384,14 +1239,6 @@ export class GameScene extends Phaser.Scene {
   }
 
   shutdown(): void {
-    if (this.disconnectTimer) {
-      this.disconnectTimer.destroy();
-      this.disconnectTimer = null;
-    }
-    if (this.chatCursorTimer) {
-      this.chatCursorTimer.destroy();
-      this.chatCursorTimer = null;
-    }
     if (this.connectionCleanup) {
       this.connectionCleanup();
       this.connectionCleanup = null;
@@ -2402,167 +1249,14 @@ export class GameScene extends Phaser.Scene {
     this.localPlayerIndex = undefined;
     this.onlineGameOverStats = null;
     this.isProcessing = false;
-    this.isDialogOpen = false;
-    this.isChatOpen = false;
-    this.chatInput = "";
-    this.chatContainer?.destroy();
-    this.chatContainer = null;
-    this.chatTriggerBtn?.destroy();
-    this.chatTriggerBtn = null;
-    this.chatBg = null;
-    this.chatDisplayText = null;
-    if (this.disconnectOverlay) {
-      this.disconnectOverlay.destroy();
-      this.disconnectOverlay = null;
-    }
-    if (this.allianceProposalResolver) {
-      this.allianceProposalResolver();
-      this.allianceProposalResolver = null;
-    }
-    this.allianceDialog?.destroy();
-    this.allianceDialog = null;
     this.seedText?.destroy();
     this.seedText = null;
-    this.dismissConfirmDialog();
-    this.dismissSurrenderDialog();
-    this.dismissExitDialog();
-    if (this.helpOverlay) {
-      this.helpOverlay.destroy();
-      this.helpOverlay = null;
-    }
+    this.dialogManager?.destroy();
+    this.chatManager?.destroy();
     this.toastManager?.destroy();
-    this.battleAnimator?.destroy();
+    this.battleAnimator?.dismiss();
     this.input.keyboard?.removeAllListeners();
     this.controller?.destroy();
-    this.controller = undefined;
-  }
-
-  private createChatUI(): void {
-    if (this.chatTriggerBtn) return;
-
-    const btnX = 220;
-    const btnY = GAME_HEIGHT - 38;
-    this.chatTriggerBtn = this.add.container(btnX, btnY).setDepth(450);
-
-    const btnBg = this.add.graphics();
-    btnBg.fillStyle(0x0f3460, 0.85);
-    btnBg.fillRoundedRect(0, 0, 130, 28, 6);
-    btnBg.lineStyle(1, 0x4466aa, 0.8);
-    btnBg.strokeRoundedRect(0, 0, 130, 28, 6);
-    this.chatTriggerBtn.add(btnBg);
-
-    const btnText = this.add.text(65, 14, "💬 Chat (Enter)", {
-      fontSize: "11px",
-      color: "#ffffff",
-      fontFamily: "monospace",
-      fontStyle: "bold",
-    }).setOrigin(0.5);
-    this.chatTriggerBtn.add(btnText);
-
-    const hitZone = this.add.zone(65, 14, 130, 28)
-      .setInteractive({ useHandCursor: true })
-      .on("pointerdown", () => this.openChatInput());
-    this.chatTriggerBtn.add(hitZone);
-
-    this.chatContainer = this.add.container(btnX, btnY).setDepth(500).setVisible(false);
-
-    this.chatBg = this.add.graphics();
-    this.chatBg.fillStyle(0x0a0c1a, 0.95);
-    this.chatBg.fillRoundedRect(0, 0, 480, 32, 6);
-    this.chatBg.lineStyle(2, 0xe94560, 1);
-    this.chatBg.strokeRoundedRect(0, 0, 480, 32, 6);
-    this.chatContainer.add(this.chatBg);
-
-    this.chatDisplayText = this.add.text(12, 16, "", {
-      fontSize: "12px",
-      color: "#ffffff",
-      fontFamily: "monospace",
-    }).setOrigin(0, 0.5);
-
-    const chatMaskGraphics = this.add.graphics();
-    chatMaskGraphics.fillStyle(0xffffff);
-    chatMaskGraphics.fillRect(btnX + 10, btnY + 2, 400, 28);
-    chatMaskGraphics.setVisible(false);
-    this.chatDisplayText.setMask(chatMaskGraphics.createGeometryMask());
-
-    this.chatContainer.add(this.chatDisplayText);
-
-    const sendBg = this.add.graphics();
-    sendBg.fillStyle(0xe94560, 1);
-    sendBg.fillRoundedRect(415, 4, 55, 24, 4);
-    this.chatContainer.add(sendBg);
-
-    const sendText = this.add.text(442, 16, "SEND", {
-      fontSize: "11px",
-      color: "#ffffff",
-      fontFamily: "monospace",
-      fontStyle: "bold",
-    }).setOrigin(0.5);
-    this.chatContainer.add(sendText);
-
-    const sendZone = this.add.zone(442, 16, 55, 24)
-      .setInteractive({ useHandCursor: true })
-      .on("pointerdown", () => this.sendChatMessage());
-    this.chatContainer.add(sendZone);
-
-    const closeText = this.add.text(495, 16, "✕", {
-      fontSize: "14px",
-      color: "#8888aa",
-      fontFamily: "monospace",
-      fontStyle: "bold",
-    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
-    closeText.on("pointerdown", () => this.closeChatInput());
-    this.chatContainer.add(closeText);
-
-    this.chatCursorTimer = this.time.addEvent({
-      delay: 500,
-      loop: true,
-      callback: () => {
-        this.chatCursorVisible = !this.chatCursorVisible;
-        if (this.isChatOpen) {
-          this.updateChatInputDisplay();
-        }
-      },
-    });
-  }
-
-  private openChatInput(): void {
-    if (!this.isOnlineGame) return;
-    this.isChatOpen = true;
-    this.chatInput = "";
-    this.chatContainer?.setVisible(true);
-    this.chatTriggerBtn?.setVisible(false);
-    this.updateChatInputDisplay();
-  }
-
-  private closeChatInput(): void {
-    this.isChatOpen = false;
-    this.chatInput = "";
-    this.chatContainer?.setVisible(false);
-    this.chatTriggerBtn?.setVisible(true);
-  }
-
-  private sendChatMessage(): void {
-    const trimmed = this.chatInput.trim();
-    if (trimmed.length > 0 && this.socketClient) {
-      this.socketClient.sendChat(trimmed);
-    }
-    this.closeChatInput();
-  }
-
-  private updateChatInputDisplay(): void {
-    if (!this.chatDisplayText) return;
-    const cursor = this.chatCursorVisible ? "|" : "";
-    if (this.chatInput.length === 0) {
-      this.chatDisplayText.setText(`💬 Type message... (Enter to send)${cursor}`).setColor("#777799");
-    } else {
-      const maxVisible = 46;
-      let textToShow = this.chatInput;
-      if (textToShow.length > maxVisible) {
-        textToShow = "…" + textToShow.slice(-(maxVisible - 1));
-      }
-      this.chatDisplayText.setText(`💬 ${textToShow}${cursor}`).setColor("#ffffff");
-    }
   }
 }
 
