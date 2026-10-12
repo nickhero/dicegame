@@ -106,6 +106,8 @@ export function setupGameActionHandlers(
         defenderTerritoryId: toTerritoryId,
         attackerDice: result.result.attackerRolls,
         defenderDice: result.result.defenderRolls,
+        attackerTotal: result.result.attackerTotal,
+        defenderTotal: result.result.defenderTotal,
         attackerWins: result.result.attackerWins,
         attackerPlayerIndex,
         defenderPlayerIndex,

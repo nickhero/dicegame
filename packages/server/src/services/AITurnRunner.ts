@@ -175,6 +175,8 @@ export class AITurnRunner {
           defenderTerritoryId: move.defenderId,
           attackerDice: result.result.attackerRolls,
           defenderDice: result.result.defenderRolls,
+          attackerTotal: result.result.attackerTotal,
+          defenderTotal: result.result.defenderTotal,
           attackerWins: result.result.attackerWins,
           attackerPlayerIndex: playerIndex,
           defenderPlayerIndex: defenderOwner,
@@ -364,7 +366,7 @@ export class AITurnRunner {
     }
   }
 
-  // ── Helpers ────────────────────────────────────────────────────────
+  // ── Helpers ─────────────────────────────────────────────────────────
 
   private getMaxAttacks(game: ActiveGame, playerIndex: number): number {
     const player = game.state.players[playerIndex];

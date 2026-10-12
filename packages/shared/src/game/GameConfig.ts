@@ -15,6 +15,7 @@ export interface GameSetupConfig {
   powerUps: boolean;            // default: false
   spectatorMode: boolean;       // default: false
   undoEnabled: boolean;         // default: true
+  alliances?: boolean;          // default: true
   customAIConfigs?: (CustomAIPreset | null)[];  // per-slot custom configs (indexed same as aiPersonalities)
 }
 
@@ -29,6 +30,7 @@ export const DEFAULT_SETUP: GameSetupConfig = {
   powerUps: false,
   spectatorMode: false,
   undoEnabled: true,
+  alliances: true,
 };
 
 export const TERRITORY_PRESETS = {

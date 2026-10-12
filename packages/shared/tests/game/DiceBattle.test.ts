@@ -105,6 +105,14 @@ describe('estimateWinProbability', () => {
     expect(p).toBeGreaterThan(0.3);
     expect(p).toBeLessThan(0.5);
   });
+
+  it('charge increases win probability and shield decreases it', () => {
+    const baseOdds = estimateWinProbability(3, 3);
+    const chargeOdds = estimateWinProbability(3, 3, 'charge', undefined);
+    const shieldOdds = estimateWinProbability(3, 3, undefined, 'shield');
+    expect(chargeOdds).toBeGreaterThan(baseOdds);
+    expect(shieldOdds).toBeLessThan(baseOdds);
+  });
 });
 
 function makeTerritory(overrides: Partial<Territory> = {}): Territory {

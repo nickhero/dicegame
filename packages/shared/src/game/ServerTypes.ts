@@ -89,6 +89,8 @@ export interface BattleResultPayload {
   defenderTerritoryId: number;
   attackerDice: number[];
   defenderDice: number[];
+  attackerTotal?: number;
+  defenderTotal?: number;
   attackerWins: boolean;
   attackerPlayerIndex: number;
   defenderPlayerIndex: number;
@@ -253,7 +255,7 @@ export interface ClientToServerEvents {
   ) => void;
   'game:spectate': (
     data: { gameId: string },
-    ack: (res: SocketAck) => void,
+    ack: (res: SocketAck<WireGameState>) => void,
   ) => void;
   'game:leaveSpectate': (
     ack: (res: SocketAck) => void,
